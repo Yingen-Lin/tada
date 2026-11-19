@@ -1,0 +1,14 @@
+{
+  "name": "tada",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --check src/drive.js && node --check src/storage.js && node --check public/app.js",
+    "build": "npm run check && node src/build.js"
+  }
+}
