@@ -2,6 +2,8 @@
 
 TADA lets each Google account connect multiple Drive folders, refresh and preview photos, and organize them with private tags and collections. Drive access is read-only. New accounts start with an empty library.
 
+[Open TADA](https://tada-yingen.vercel.app/). Google Drive sign-in is currently available to approved test accounts.
+
 ## Run locally
 
 Use Node.js 24. Run `npm test` and `npm run build`. Run `npm start` to open the app at http://127.0.0.1:4180/. For local Google sign-in, add `http://127.0.0.1:4180/auth/google/callback` to the TADA OAuth client and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in a local `.env` file. Local library records use a new SQLite database under `.local/`.
