@@ -1,3 +1,4 @@
+import {createWorkspaceDemo} from './workspace-demo.js';
 import {createWorkspaceUI} from './workspaces.js';
 import {icon,hydrateIcons} from "./icons.js";
 import {mergePhotos,normalizeTags,getSourceViews} from "./library.js";
@@ -122,7 +123,16 @@ $('#download').onclick=downloadOriginals;
 document.addEventListener('keydown',e=>{if(e.key==='/'&&$('#team-page').hidden&&!location.hash.startsWith('#settings')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&!$('#modal').open){e.preventDefault();$('#search').focus()}if(e.key==='Escape'&&!$('#modal').open){selected.clear();renderSelection()}});
 $('#modal').addEventListener('click',e=>{if(e.target===$('#modal')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal()}});
 document.addEventListener('error',e=>{if(e.target instanceof HTMLImageElement&&!e.target.dataset.fallback){e.target.dataset.fallback='true';e.target.src='./placeholder.svg'}},true);
-const teamUI = createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal:()=>navigate()});
+let workspaceDemo;
+const teamUI = createWorkspaceUI({
+ api:(...args)=>workspaceDemo ? workspaceDemo.api(...args) : api(...args),
+ isDemo:()=>Boolean(workspaceDemo),esc,modal,closeModal,toast,renderPersonal:()=>navigate()
+});
+$('#start-workspace-demo').onclick=async()=>{
+ workspaceDemo ||= createWorkspaceDemo();
+ teamUI.showSwitcher();
+ try{await teamUI.openDemo(workspaceDemo.marketingId)}catch(error){toast(error.message)}
+};
 render();
 
 async function api(path,options={}) {const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(driveStatus.accountId?{'X-TADA-Account':driveStatus.accountId}:{}),...options.headers}});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed.');return data}
@@ -144,6 +154,7 @@ async function bootstrap(){
  $('#startup-status').hidden=false;$('.app-frame').inert=true;
  try{
   driveStatus=await api('/api/drive/status');
+  $('#start-workspace-demo').hidden=!driveStatus.workspaceDemo;
   if(driveStatus.connected){
    live=true;teamUI.showSwitcher();const avatar=$('.avatar');avatar.hidden=false;avatar.textContent=driveStatus.email.slice(0,2).toUpperCase();avatar.title=driveStatus.email;
    const stored=await api('/api/library');databaseRevision=stored.revision;

@@ -75,3 +75,5 @@ html,body{height:100%;overflow:hidden}body{height:100dvh;min-height:0;padding:16
 .team-tag-controls .modal-input{min-width:0}
 #team-nav{flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:12px}
 .team-drive-choices{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+#start-workspace-demo{margin-bottom:16px}
+.team-demo-note{margin:0 0 16px;padding:9px 12px;background:var(--sidebar);border:1px solid var(--line);border-radius:6px;color:var(--ink)}

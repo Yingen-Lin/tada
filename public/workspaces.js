@@ -1,6 +1,6 @@
 import {icon,hydrateIcons} from './icons.js';
 
-export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal}) {
+export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderPersonal}) {
   const get = selector => document.querySelector(selector);
   const chooser = get('#workspace-switcher');
   const section = get('#team-page');
@@ -109,7 +109,7 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
   const isAdmin = () => workspace.role === 'admin';
   const destination = () => `Save to ${workspace.name} · Team members`;
   const navButton = (id,label,iconName,count) => `<button type="button" class="nav-item ${view === id ? 'active' : ''}" data-team-view="${esc(id)}" ${view === id ? 'aria-current="page"' : ''}>${icon(iconName)}<span class="nav-text">${esc(label)}</span>${count === undefined ? '' : `<b>${count}</b>`}</button>`;
-  const media = (id,kind) => `/api/workspaces/${encodeURIComponent(workspace.id)}/files/${encodeURIComponent(id)}/${kind}`;
+  const media = (id,kind) => isDemo() ? '/placeholder.svg' : `/api/workspaces/${encodeURIComponent(workspace.id)}/files/${encodeURIComponent(id)}/${kind}`;
 
   function render() {
     const active = Boolean(workspace);
@@ -117,6 +117,8 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
     get('.sidebar-bottom').hidden = active;
     sidebar.hidden = !active;
     section.hidden = !active;
+    const demoButton = get('#start-workspace-demo');
+    if(isDemo()) demoButton.hidden = active;
     get('#workspace-title').textContent = workspace?.name || 'Personal library';
     get('#workspace-subtitle').textContent = active ? roleLabel(workspace.role) : 'Only you';
     get('#workspace-initial').textContent = active ? workspace.name.slice(0,1).toUpperCase() : 'P';
@@ -126,7 +128,7 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
     get('#settings-page').hidden = true;
     get('#selection-bar').hidden = true;
     get('#save-status').hidden = true;
-    get('#mode-switch').textContent = 'TEAM WORKSPACE';
+    get('#mode-switch').textContent = isDemo() ? 'DEMO SETTINGS' : 'TEAM WORKSPACE';
     const source = workspace.sources.find(item => 'folder:' + item.id === view);
     const collection = workspace.collections.find(item => 'collection:' + item.id === view);
     const title = view === 'settings' ? 'Workspace settings' : source?.name || collection?.name || 'All photos';
@@ -141,7 +143,7 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
       ${navButton('settings','Workspace settings','settings')}`;
 
     const isSettings = view === 'settings';
-    section.innerHTML = `<section class="page-heading"><div><div class="eyebrow">TEAM WORKSPACE</div><h1>${esc(title)}</h1>
+    section.innerHTML = `${isDemo() ? '<p class="team-demo-note">Demo · Sample data. Changes reset when you reload the page.</p>' : ''}<section class="page-heading"><div><div class="eyebrow">TEAM WORKSPACE</div><h1>${esc(title)}</h1>
       <p>${esc(workspace.name)} · ${esc(roleLabel(workspace.role))}</p></div></section>
       ${isSettings ? settingsMarkup() : galleryMarkup(source || collection)}`;
     hydrateIcons(section);
@@ -214,6 +216,7 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
         closeModal();
       }));
     get('#team-more-drive').onclick = () => loadDriveChoices();
+    if(isDemo()) void loadDriveChoices();
     get('#team-drive-choices').onclick = event => {
       const choice = event.target.closest('[data-team-drive-choice]');
       if(choice) get('#team-drive-folder').value = choice.dataset.teamDriveChoice;
@@ -251,7 +254,7 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
     const edit = canEdit();
     modal(photo.name,edit ? destination() : `${workspace.name} · Viewer`,
       `<div class="team-preview"><img src="${media(id,'thumbnail')}" alt="${esc(photo.name)}">
-      <a class="text-button" href="${media(id,'download')}" download>Download original</a></div>
+      ${isDemo() ? '' : `<a class="text-button" href="${media(id,'download')}" download>Download original</a>`}</div>
       <div class="photo-tags">${photo.tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</div>
       ${edit ? `<label class="field-label" for="team-tag">Tag</label><div class="team-tag-controls">
         <input class="modal-input" id="team-tag" maxlength="80" placeholder="Enter a tag">
@@ -316,7 +319,13 @@ export function createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal
     if(teamRemoveSource) removeSource(teamRemoveSource);
   };
 
-  return {render,showSwitcher:() => {chooser.hidden = false;},settings:() => {
+  async function openDemo(id) {
+    await openWorkspace(id);
+    view = 'settings';
+    render();
+  }
+
+  return {render,openDemo,showSwitcher:() => {chooser.hidden = false;},settings:() => {
     if(!workspace) return false;
     view = 'settings';
     render();

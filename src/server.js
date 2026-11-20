@@ -71,7 +71,7 @@ export async function handler(req,res){
       if(path==='/api/library'&&req.method==='POST'){const input=await body(req,8*1024*1024);return json(res,200,await storage().write(s.accountId,input.revision,input.data))}
       return json(res,405,{error:'Method not allowed.'});
     }
-    if(path==='/api/drive/status')return json(res,200,{configured,storage:hostedConfigured()?'hosted':'local',connected:!!s?.tokens,email:s?.email||null,accountId:s?.accountId||null});
+    if(path==='/api/drive/status')return json(res,200,{configured,workspaceDemo:!configured&&process.env.VERCEL_ENV==='preview',storage:hostedConfigured()?'hosted':'local',connected:!!s?.tokens,email:s?.email||null,accountId:s?.accountId||null});
     if(path==='/auth/google') {
       if(!configured)return go(res,'/#settings/connections');
       const pending=await session(req,res,true);pending.oauth={state:random(),verifier:random(),expires:Date.now()+600000};
