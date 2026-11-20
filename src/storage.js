@@ -26,9 +26,9 @@ export function openLibraryStore(filename) {
   const write=db.prepare('INSERT INTO libraries(account,revision,data,updated_at) VALUES(?,?,?,?) ON CONFLICT(account) DO UPDATE SET revision=excluded.revision,data=excluded.data,updated_at=excluded.updated_at');
   return {
     read(account){const row=read.get(account);return row?{revision:row.revision,data:JSON.parse(row.data),updatedAt:row.updated_at}:{revision:0,data:null,updatedAt:null}},
-    write(account,expectedRevision,value){
+    write(account,expectedRevision,value,validate=validateLibrary){
       if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw invalid('Invalid library revision.');
-      const data=validateLibrary(value);db.exec('BEGIN IMMEDIATE');
+      const data=validate(value);db.exec('BEGIN IMMEDIATE');
       try{const current=read.get(account);if((current?.revision||0)!==expectedRevision)throw Object.assign(new Error('This library was changed in another tab. Reload from the database before saving again.'),{status:409});const revision=expectedRevision+1,updatedAt=new Date().toISOString();write.run(account,revision,JSON.stringify(data),updatedAt);db.exec('COMMIT');return{revision,updatedAt}}
       catch(e){db.exec('ROLLBACK');throw e}
     },

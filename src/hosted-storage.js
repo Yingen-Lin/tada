@@ -18,9 +18,9 @@ const writeScript=`local current = redis.call('GET', KEYS[1]); local revision = 
 export function hostedLibraryStore(command=redisClient()){
  return {
   async read(accountId){const data=await command('GET',accountKey(accountId));return data?JSON.parse(data):empty()},
-  async write(accountId,expectedRevision,value){
+  async write(accountId,expectedRevision,value,validate=validateLibrary){
    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw Object.assign(new Error('Invalid library revision.'),{status:400});
-   const data=validateLibrary(value),revision=expectedRevision+1,updatedAt=new Date().toISOString();
+   const data=validate(value),revision=expectedRevision+1,updatedAt=new Date().toISOString();
    const result=await command('EVAL',writeScript,1,accountKey(accountId),expectedRevision,JSON.stringify({revision,data,updatedAt}));
    if(!result)throw Object.assign(new Error('This library was changed in another tab. Reload from the database before saving again.'),{status:409});
    return{revision,updatedAt};

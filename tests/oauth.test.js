@@ -89,3 +89,107 @@ test('two Google accounts can refresh and restore private libraries independentl
   assert.equal(JSON.parse((await index(beta,'beta')).body).files.length,1);
  }finally{globalThis.fetch=original}
 });
+
+test('team workspaces share edits without granting Drive access or changing personal libraries',async()=>{
+ const original=globalThis.fetch;
+ const origin='http://127.0.0.1:4180';
+ const folderA='shared-folder-a';
+ const folderB='shared-folder-b';
+ const photoA='shared-photo-aa';
+ const photoB='shared-photo-bb';
+ const newPhoto='shared-photo-cc';
+ const folderMime='application/vnd.google-apps.folder';
+ const driveAccess={
+  owner:new Set([folderA,folderB]),
+  editor:new Set([folderA,folderB]),
+  viewer:new Set([folderA]),
+  outsider:new Set([folderA,folderB])
+ };
+ let refreshed=false;
+ const image=(id,parent)=>({
+  id,name:id+'.jpg',parents:[parent],mimeType:'image/jpeg',
+  thumbnailLink:'https://lh3.googleusercontent.com/'+id
+ });
+ globalThis.fetch=async(resource,options)=>{
+  const url=new URL(resource);
+  if(url.hostname==='oauth2.googleapis.com'){
+   const code=new URLSearchParams(options.body).get('code');
+   return Response.json({access_token:code,expires_in:3600,scope:'openid email https://www.googleapis.com/auth/drive.readonly'});
+  }
+  const account=options.headers.Authorization.slice('Bearer '.length);
+  if(url.hostname==='openidconnect.googleapis.com')return Response.json({sub:'team-'+account,email:account+'@example.com',email_verified:true});
+  if(url.hostname==='lh3.googleusercontent.com')return new Response('team photo',{headers:{'Content-Type':'image/jpeg'}});
+  const id=url.pathname.split('/').at(-1);
+  const allowed=driveAccess[account];
+  if([folderA,folderB].includes(id)&&allowed.has(id))return Response.json({id,name:id,mimeType:folderMime});
+  const files=[image(photoA,folderA),image(photoB,folderB),...(refreshed?[image(newPhoto,folderA)]:[])];
+  if(id==='files'){
+   const parent=url.searchParams.get('q').match(/^'([^']+)' in parents/)?.[1];
+   if(allowed.has(parent))return Response.json({files:files.filter(file=>file.parents[0]===parent)});
+  }
+  const file=files.find(item=>item.id===id&&allowed.has(item.parents[0]));
+  return file ? Response.json(file) : new Response(null,{status:404});
+ };
+
+ const requestJson=async(path,cookie,payload)=>{
+  const response=await request(path,{cookie,origin},payload?'POST':'GET',payload&&JSON.stringify(payload));
+  return {status:response.status,data:JSON.parse(response.body)};
+ };
+ async function login(account){
+  const start=await request('/auth/google');
+  const state=new URL(start.headers.location).searchParams.get('state');
+  const pending=start.headers['set-cookie'].split(';')[0];
+  const callback=await request(`/auth/google/callback?code=${account}&state=${state}`,{cookie:pending});
+  assert.equal(callback.status,303);
+  return callback.headers['set-cookie'].split(';')[0];
+ }
+ try{
+  const owner=await login('owner'),editor=await login('editor');
+  const viewer=await login('viewer'),outsider=await login('outsider');
+  assert.equal((await request('/api/workspaces')).status,401);
+  const created=await requestJson('/api/workspaces',owner,{name:'Marketing'});
+  assert.equal(created.status,201);
+  const path='/api/workspaces/'+created.data.id;
+  const apply=(cookie,payload)=>requestJson(path,cookie,payload);
+  const view=cookie=>requestJson(path,cookie);
+  assert.equal((await view(outsider)).status,404);
+  assert.deepEqual((await requestJson('/api/workspaces',outsider)).data,[]);
+  for(const [email,role] of [['EDITOR@example.com','editor'],['viewer@example.com','viewer']]){
+   assert.equal((await apply(owner,{action:'set-member',email,role})).status,200);
+  }
+  assert.equal((await requestJson('/api/workspaces',editor)).data[0].role,'editor');
+  assert.equal((await apply(editor,{action:'add-source',folderId:folderA})).status,403);
+  for(const folderId of [folderA,folderB]){
+   assert.equal((await apply(owner,{action:'add-source',folderId,recursive:false})).status,200);
+  }
+  assert.equal((await apply(editor,{action:'create-collection',name:'November'})).status,200);
+  const collectionId=(await view(owner)).data.collections[0].id;
+  const results=await Promise.all([
+   apply(owner,{action:'edit-photo',photoId:photoA,tag:'Social',tagOperation:'add'}),
+   apply(editor,{action:'edit-photo',photoId:photoA,collectionId,collectionOperation:'add'}),
+   apply(editor,{action:'edit-photo',photoId:photoA,tag:'Selected',tagOperation:'add'})
+  ]);
+  assert.deepEqual(results.map(result=>result.status),[200,200,200]);
+  assert.equal((await apply(owner,{action:'edit-photo',photoId:photoB,tag:'Restricted',tagOperation:'add',collectionId,collectionOperation:'add'})).status,200);
+  const restored=(await view(await login('editor'))).data;
+  assert.deepEqual(new Set(restored.photos.find(photo=>photo.id===photoA).tags),new Set(['Social','Selected']));
+  assert.deepEqual(new Set(restored.collections[0].ids),new Set([photoA,photoB]));
+  const restricted=(await view(viewer)).data;
+  assert.equal(restricted.unavailableSources,1);
+  assert.deepEqual(restricted.collections[0].ids,[photoA]);
+  assert.doesNotMatch(JSON.stringify(restricted),/Restricted|shared-photo-bb|shared-folder-b/);
+  assert.equal((await apply(viewer,{action:'edit-photo',photoId:photoA,tag:'Blocked',tagOperation:'add'})).status,403);
+  assert.equal((await request(path+'/files/'+photoB+'/thumbnail',{cookie:viewer})).status,404);
+  const preview=await request(path+'/files/'+photoA+'/thumbnail',{cookie:viewer});
+  assert.equal(preview.status,200);assert.equal(preview.body,'team photo');
+  assert.equal((await request(path+'/files/'+photoA+'/thumbnail',{cookie:outsider})).status,404);
+  assert.equal((await requestJson('/api/library',owner)).data.data,null);
+  refreshed=true;
+  assert.ok((await view(editor)).data.photos.some(photo=>photo.id===newPhoto));
+  driveAccess.editor.delete(folderA);
+  assert.equal((await apply(editor,{action:'edit-photo',photoId:photoA,tag:'Blocked',tagOperation:'add'})).status,404);
+  assert.equal((await apply(owner,{action:'set-member',email:'viewer@example.com',role:'remove'})).status,200);
+  assert.equal((await view(viewer)).status,404);
+  assert.deepEqual((await requestJson('/api/workspaces',viewer)).data,[]);
+ }finally{globalThis.fetch=original}
+});

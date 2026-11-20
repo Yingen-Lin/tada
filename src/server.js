@@ -6,6 +6,7 @@ import {resolve,extname,sep} from 'node:path';
 import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {FOLDER_MIME,FILE_FIELDS,fileId,indexFolder} from './drive.js';
+import {workspaceService} from './workspaces.js';
 import {openLibraryStore} from './storage.js';
 import {hostedConfigured,hostedLibraryStore,hostedSessions} from './hosted-storage.js';
 
@@ -36,7 +37,19 @@ function go(res,path){res.writeHead(303,{Location:path});res.end()}
 async function body(req,maxBytes=16384){let text='';for await(const part of req){text+=part;if(Buffer.byteLength(text)>maxBytes)throw new Error('Request too large.')}return JSON.parse(text||'{}')}
 async function tokenRequest(params){const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams(params),signal:AbortSignal.timeout(20000)});if(!response.ok)throw new Error('Google sign-in expired or could not be completed. Connect again.');return response.json()}
 async function access(s){if(!s?.tokens)throw Object.assign(new Error('Connect Google Drive first.'),{status:401});if(s.tokens.expires<Date.now()+60000){if(!s.tokens.refresh_token)throw Object.assign(new Error('Reconnect Google Drive to continue.'),{status:401});const next=await tokenRequest({client_id:process.env.GOOGLE_CLIENT_ID,client_secret:process.env.GOOGLE_CLIENT_SECRET,grant_type:'refresh_token',refresh_token:s.tokens.refresh_token});s.tokens={...s.tokens,...next,expires:Date.now()+next.expires_in*1000};await saveSession(s)}return s.tokens.access_token}
-async function google(s,path,params={}){const url=new URL(`https://www.googleapis.com/drive/v3/${path}`);url.search=new URLSearchParams(params);const response=await fetch(url,{headers:{Authorization:`Bearer ${await access(s)}`},signal:AbortSignal.timeout(30000)});if(!response.ok){const status=response.status;throw Object.assign(new Error(status===403?'Google Drive denied access. Check folder permissions and download restrictions.':status===404?'That folder or photo is unavailable. Check the link and your Google account.':'Google Drive request failed. Please try again.'),{status:status===401?401:status===404?404:502})}return response.json()}
+async function google(s,path,params={}){const url=new URL(`https://www.googleapis.com/drive/v3/${path}`);url.search=new URLSearchParams(params);const response=await fetch(url,{headers:{Authorization:`Bearer ${await access(s)}`},signal:AbortSignal.timeout(30000)});if(!response.ok){const status=response.status;throw Object.assign(new Error(status===403?'Google Drive denied access. Check folder permissions and download restrictions.':status===404?'That folder or photo is unavailable. Check the link and your Google account.':'Google Drive request failed. Please try again.'),{status:[401,403,404].includes(status)?status:502})}return response.json()}
+async function sendPhoto(s,res,id,kind,file){
+  let target=`https://www.googleapis.com/drive/v3/files/${id}?alt=media&supportsAllDrives=true`;
+  if(kind==='thumbnail') {
+    if(!file.thumbnailLink){res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'private, no-store'});return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#eeedf2"/><text x="200" y="150" text-anchor="middle" fill="#85808c" font-family="sans-serif" font-size="14">Preview unavailable</text></svg>')}
+    const thumb=new URL(file.thumbnailLink);if(thumb.protocol!=='https:'||!/(^|\.)(googleusercontent\.com|googleapis\.com|google\.com)$/.test(thumb.hostname))throw new Error('Invalid preview URL.');target=thumb.href;
+  }else if(file.capabilities?.canDownload===false)return json(res,403,{error:'The owner has disabled downloads for this photo.'});
+  const stream=await fetch(target,{headers:{Authorization:`Bearer ${await access(s)}`},signal:AbortSignal.timeout(120000)});
+  if(!stream.ok)throw new Error('The photo could not be loaded. Refresh the source and try again.');
+  res.setHeader('Content-Type',stream.headers.get('content-type')||'application/octet-stream');res.setHeader('Cache-Control','private, no-store');
+  if(kind==='download')res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/'/g,'%27')}`);
+  res.writeHead(200);await pipeline(Readable.fromWeb(stream.body),res);return;
+}
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'};
 
 export async function handler(req,res){
@@ -81,6 +94,25 @@ export async function handler(req,res){
       return go(res,'/#settings/connections');
     }
     if(path==='/api/drive/disconnect'&&req.method==='POST'){if(s){const id=req.headers.cookie?.match(/(?:^|;\s*)tada_session=([\w-]+)/)?.[1];await sessions.delete(id)}res.setHeader('Set-Cookie',`tada_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure?'; Secure':''}`);return json(res,200,{connected:false})}
+    if(path === '/api/workspaces' || path.startsWith('/api/workspaces/')) {
+      await access(s);
+      if(!s.accountId || !s.email) return json(res,401,{error:'Sign in to TADA first.'});
+      const service = workspaceService(storage(),s,(p,q) => google(s,p,q));
+      if(path === '/api/workspaces') {
+        if(req.method === 'GET') return json(res,200,await service.list());
+        if(req.method === 'POST') return json(res,201,await service.create(await body(req)));
+      }
+      const match = path.match(/^\/api\/workspaces\/([a-f0-9-]{36})(?:\/files\/([\w-]+)\/(thumbnail|download))?$/);
+      if(!match) return json(res,404,{error:'Workspace unavailable.'});
+      const [,id,photoId,kind] = match;
+      if(photoId && req.method === 'GET') {
+        const photo = await service.photo(id,photoId);
+        return await sendPhoto(s,res,photoId,kind,photo);
+      }
+      if(!photoId && req.method === 'GET') return json(res,200,await service.view(id));
+      if(!photoId && req.method === 'POST') return json(res,200,await service.change(id,await body(req)));
+      return json(res,405,{error:'Method not allowed.'});
+    }
     if(path.startsWith('/api/drive/')) {
       await access(s);
       if(path==='/api/drive/folders'&&req.method==='GET') {
@@ -97,16 +129,7 @@ export async function handler(req,res){
         const [,id,kind]=match;
         if(!s.files.has(id))return json(res,403,{error:'Refresh this source folder before opening its photos.'});
         const file=await google(s,`files/${id}`,{fields:FILE_FIELDS,supportsAllDrives:'true'});
-        let target=`https://www.googleapis.com/drive/v3/files/${id}?alt=media&supportsAllDrives=true`;
-        if(kind==='thumbnail') {
-          if(!file.thumbnailLink){res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'private, no-store'});return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#eeedf2"/><text x="200" y="150" text-anchor="middle" fill="#85808c" font-family="sans-serif" font-size="14">Preview unavailable</text></svg>')}
-          const thumb=new URL(file.thumbnailLink);if(thumb.protocol!=='https:'||!/(^|\.)(googleusercontent\.com|googleapis\.com|google\.com)$/.test(thumb.hostname))throw new Error('Invalid preview URL.');target=thumb.href;
-        }else if(file.capabilities?.canDownload===false)return json(res,403,{error:'The owner has disabled downloads for this photo.'});
-        const stream=await fetch(target,{headers:{Authorization:`Bearer ${await access(s)}`},signal:AbortSignal.timeout(120000)});
-        if(!stream.ok)throw new Error('The photo could not be loaded. Refresh the source and try again.');
-        res.setHeader('Content-Type',stream.headers.get('content-type')||'application/octet-stream');res.setHeader('Cache-Control','private, no-store');
-        if(kind==='download')res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/'/g,'%27')}`);
-        res.writeHead(200);await pipeline(Readable.fromWeb(stream.body),res);return;
+        return await sendPhoto(s,res,id,kind,file);
       }
       return json(res,404,{error:'Unknown Drive endpoint.'});
     }

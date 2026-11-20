@@ -18,7 +18,8 @@ export function mergePhotos(existing, incoming) {
   return [...map.values()];
 }
 export async function indexFolder({rootId, recursive, get, maxFiles=10000, maxFolders=500}) {
-  const root = await get(`files/${fileId(rootId)}`, {fields:'id,name,mimeType',supportsAllDrives:'true'});
+  const root = await get(`files/${fileId(rootId)}`, {fields:'id,name,mimeType,trashed',supportsAllDrives:'true'});
+  if (root.trashed) throw Object.assign(new Error('This Drive folder is in the trash.'),{status:404});
   if (root.mimeType !== FOLDER_MIME) throw new Error('Choose a folder, not a file.');
   const pending=[{id:root.id,name:root.name,path:root.name}], visited=new Set(), files=new Map(), folders=[];
   while(pending.length) {

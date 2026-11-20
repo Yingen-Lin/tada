@@ -3,7 +3,7 @@
 <body><div id="startup-status" class="startup-status" role="status" hidden><span class="loading-orbit"></span>Opening your library…</div><div class="app-frame">
 <aside class="sidebar">
  <a class="brand" href="#" aria-label="TADA home"><span class="brand-icon" data-icon="aperture" data-icon-size="32"></span><span><b>TADA</b></span></a>
- <div class="workspace"><span class="workspace-avatar">T</span><span>TADA workspace<small>Your creative library</small></span></div>
+ <button class="workspace" id="workspace-switcher" type="button" hidden><span class="workspace-avatar" id="workspace-initial">P</span><span><strong id="workspace-title">Personal library</strong><small id="workspace-subtitle">Only you</small></span><span class="workspace-arrow" data-icon="chevron-down"></span></button>
  <div class="sidebar-scroll">
  <div class="section-label">LIBRARY</div>
  <button class="nav-item active" id="all-photos"><span data-icon="grid"></span>All photos<b id="total-count">0</b></button>
@@ -11,6 +11,7 @@
  <div class="section-label collection-label">POST COLLECTIONS<button id="new-collection-side" aria-label="Create collection"><span data-icon="plus"></span></button></div><div id="collections-nav"></div>
  </div>
  <div class="sidebar-bottom"><button id="settings" class="nav-item"><span data-icon="settings"></span>Settings</button></div>
+<nav id="team-nav" aria-label="Team workspace" hidden></nav>
 </aside>
 <div class="main-shell"><header class="topbar"><span>Workspace <span class="breadcrumb">/</span> <b id="breadcrumb">All photos</b></span><div class="topbar-right"><button id="save-status" class="save-status" aria-live="polite" hidden>Saved to database</button><button id="mode-switch" class="prototype-badge">SIGN IN</button><span class="avatar" hidden></span></div></header>
 <main>
@@ -22,7 +23,7 @@
  <div id="filter-panel" class="filter-panel" hidden><div><b>Filter by tags</b><span>Match any selected tag</span><button id="clear-tags">Clear</button></div><div id="filter-tags"></div></div>
  <div class="gallery-meta"><label><input type="checkbox" id="select-all"> <span id="select-label">Select visible photos</span></label><span id="filter-summary">A fresh perspective, in every folder.</span></div>
  <div id="gallery" class="gallery"></div><div id="empty" class="empty" hidden><span data-icon="search" data-icon-size="36"></span><h3>No photos here yet</h3><p>Try another search or add photos from All photos.</p><button id="clear-filters">Browse all photos</button></div><div class="load-area"><span id="loaded-count"></span><button id="load-more">Load more photos ↓</button></div>
- </section></div><section id="settings-page" hidden></section><footer>Thoughtfully organized. Ready to create.<span>Read-only originals · Made for your next post</span></footer>
+ </section></div><section id="settings-page" hidden></section><section id="team-page" hidden></section><footer>Thoughtfully organized. Ready to create.<span>Read-only originals · Made for your next post</span></footer>
 </main>
 <div id="selection-bar" class="selection-bar" hidden><span class="selection-count" id="selection-count"></span><button id="clear-selection" aria-label="Clear selection"><span data-icon="close"></span></button><i></i><button id="bulk-tags"><span data-icon="tag"></span> Add tags</button><button id="add-to-collection"><span data-icon="collection"></span> Add to collection</button><button id="remove-from-collection" hidden>Remove from collection</button><button id="download"><span data-icon="download"></span> Download originals <small>SIMULATED</small></button></div>
 </div></div>

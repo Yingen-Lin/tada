@@ -1,3 +1,4 @@
+import {createWorkspaceUI} from './workspaces.js';
 import {icon,hydrateIcons} from "./icons.js";
 import {mergePhotos,normalizeTags,getSourceViews} from "./library.js";
 const $ = (s) => document.querySelector(s);
@@ -10,7 +11,8 @@ let photos=[],collections=[],sources=[];
 let activeFolder=null, activeCollection=null, query='', activeTags=new Set(), selected=new Set(), limit=48, sort='newest', compact=false, toastTimer;
 const esc = (value) => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const allTags = () => [...new Set(photos.flatMap(p=>p.tags))].sort();
-function setSaveStatus(text,failed=false){const el=$('#save-status');el.hidden=!live;el.textContent=text;el.classList.toggle('failed',failed)}
+let saveQueueLabel='Saved to database';
+function setSaveStatus(text,failed=false){saveQueueLabel=text;const el=$('#save-status');el.hidden=!live||!$('#team-page').hidden;el.textContent=text;el.classList.toggle('failed',failed)}
 function librarySnapshot(){return {photos,collections,sources,collapsedSources:[...collapsedSources]}}
 function save(){
  const snapshot=JSON.parse(JSON.stringify(librarySnapshot()));
@@ -47,7 +49,7 @@ function renderGallery(){const results=filtered(),visible=results.slice(0,limit)
  renderSelection();
 }
 function renderSelection(){const visible=filtered().slice(0,limit);const n=visible.filter(p=>selected.has(p.id)).length;$('#select-all').checked=!!visible.length&&n===visible.length;$('#select-all').indeterminate=n>0&&n<visible.length;$('#selection-bar').hidden=!selected.size;$('#selection-count').textContent=`${selected.size} selected`;$('#remove-from-collection').hidden=!activeCollection;$('#select-label').textContent=n===visible.length&&visible.length?'All visible photos selected':'Select visible photos';document.querySelectorAll('[data-select]').forEach(el=>{el.checked=selected.has(el.dataset.select);el.closest('.photo-card').classList.toggle('selected',el.checked)})}
-function render(){renderNav();renderTags();renderGallery();const settings=location.hash.startsWith('#settings');$('#library-page').hidden=settings;$('#settings-page').hidden=!settings;$('#settings').classList.toggle('active',settings);if(settings){$('#all-photos').classList.remove('active');$('#selection-bar').hidden=true;$('#new-collection-side').hidden=true;$('#breadcrumb').textContent='Settings';renderSettings(location.hash.split('/')[1]||'connections')}hydrateIcons()}
+function render(){if(teamUI.render())return;setSaveStatus(saveFailed?'Not saved · View details':saveQueueLabel,saveFailed);renderNav();renderTags();renderGallery();const settings=location.hash.startsWith('#settings');$('#library-page').hidden=settings;$('#settings-page').hidden=!settings;$('#settings').classList.toggle('active',settings);if(settings){$('#all-photos').classList.remove('active');$('#selection-bar').hidden=true;$('#new-collection-side').hidden=true;$('#breadcrumb').textContent='Settings';renderSettings(location.hash.split('/')[1]||'connections')}hydrateIcons()}
 function closeModal(){$('#modal').close()}
 function modal(title,description,body,actionLabel,onSubmit,{danger=false,wide=false}={}){
  const el=$('#modal');delete el.dataset.previewId;el.className=wide?'photo-modal':'';$('#modal-content').innerHTML=`<form id="modal-form"><div class="modal-head"><h2>${esc(title)}</h2><button type="button" id="close-modal" aria-label="Close dialog">${icon('close')}</button></div><p class="modal-description">${esc(description)}</p>${body}<p id="modal-error" class="inline-error" role="alert"></p>${actionLabel?`<div class="modal-actions"><button type="button" id="cancel-modal">Cancel</button><button type="submit" class="${danger?'danger':'primary'}">${esc(actionLabel)}</button></div>`:''}</form>`;
@@ -117,9 +119,10 @@ $('#settings').onclick=()=>openSettings();
 $('#collection-settings').onclick=()=>openSettings('collections');
 $('#remove-from-collection').onclick=()=>{const c=collection();const n=selected.size;c.ids=c.ids.filter(id=>!selected.has(id));selected.clear();save();render();toast(`${n} photos removed from this collection. Originals kept.`)};
 $('#download').onclick=downloadOriginals;
-document.addEventListener('keydown',e=>{if(e.key==='/'&&!location.hash.startsWith('#settings')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&!$('#modal').open){e.preventDefault();$('#search').focus()}if(e.key==='Escape'&&!$('#modal').open){selected.clear();renderSelection()}});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&$('#team-page').hidden&&!location.hash.startsWith('#settings')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&!$('#modal').open){e.preventDefault();$('#search').focus()}if(e.key==='Escape'&&!$('#modal').open){selected.clear();renderSelection()}});
 $('#modal').addEventListener('click',e=>{if(e.target===$('#modal')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal()}});
 document.addEventListener('error',e=>{if(e.target instanceof HTMLImageElement&&!e.target.dataset.fallback){e.target.dataset.fallback='true';e.target.src='./placeholder.svg'}},true);
+const teamUI = createWorkspaceUI({api,esc,modal,closeModal,toast,renderPersonal:()=>navigate()});
 render();
 
 async function api(path,options={}) {const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(driveStatus.accountId?{'X-TADA-Account':driveStatus.accountId}:{}),...options.headers}});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed.');return data}
@@ -136,13 +139,13 @@ function bindRealConnections(){
 async function loadDriveFolders(pageToken=''){const data=await api('/api/drive/folders'+(pageToken?'?pageToken='+encodeURIComponent(pageToken):''));$('#drive-folder-list').insertAdjacentHTML('beforeend',(data.files||[]).map(f=>`<button type="button" class="drive-folder-option" data-drive-folder="${esc(f.id)}">${icon('folder',16)} ${esc(f.name)}</button>`).join(''));document.querySelectorAll('[data-drive-folder]').forEach(b=>b.onclick=()=>{$('#drive-folder-input').value=b.dataset.driveFolder});$('#more-drive-folders').hidden=!data.nextPageToken;$('#more-drive-folders').onclick=()=>loadDriveFolders(data.nextPageToken).catch(e=>$('#drive-error').textContent=e.message)}
 async function importFolder(folderId,recursive){if(driveBusy)throw new Error('Wait for the current source to finish loading.');driveBusy=true;try{const data=await api('/api/drive/index',{method:'POST',body:JSON.stringify({folderId,recursive})});const incoming=data.files.map(f=>({id:'drive-'+f.id,driveId:f.id,title:f.name,filename:f.name,photographer:f.sourcePath,sourcePath:f.sourcePath,sourceFolderId:f.sourceFolderId,size:f.size?`${(Number(f.size)/1048576).toFixed(1)} MB`:'—',date:f.modifiedTime?.slice(0,10)||'',modifiedTime:f.modifiedTime,width:f.imageMediaMetadata?.width,height:f.imageMediaMetadata?.height,tags:[],canDownload:f.capabilities?.canDownload!==false}));photos=mergePhotos(photos,incoming);const source={id:'drive-'+data.folder.id,driveId:data.folder.id,name:data.folder.name,path:data.folder.name,recursive,ids:incoming.map(p=>p.id),children:(data.folders||[]).filter(f=>f.id!==data.folder.id).map(f=>({id:'drive-'+f.id,name:f.name,path:f.path,ids:incoming.filter(p=>p.sourceFolderId===f.id||p.sourcePath.startsWith(f.path+' / ')).map(p=>p.id)})),syncedAt:data.syncedAt};sources=sources.filter(s=>s.id!==source.id);sources.push(source);await save();if(saveFailed)throw new Error(lastSaveError)}finally{driveBusy=false}}
 function downloadOriginals(){const chosen=photos.filter(p=>selected.has(p.id));modal('Download originals',`${chosen.length} selected photos. Downloads use the original Google Drive files.`,chosen.map(p=>`<a class="download-file" href="/api/drive/files/${esc(p.driveId)}/download" download>${esc(p.filename)} <span>${p.canDownload?'↓ Download':'Owner may restrict download'}</span></a>`).join(''),'Done',closeModal)}
-$('#mode-switch').onclick=()=>openSettings('connections');
+$('#mode-switch').onclick=()=>{if(!teamUI.settings())openSettings('connections')};
 async function bootstrap(){
  $('#startup-status').hidden=false;$('.app-frame').inert=true;
  try{
   driveStatus=await api('/api/drive/status');
   if(driveStatus.connected){
-   live=true;const avatar=$('.avatar');avatar.hidden=false;avatar.textContent=driveStatus.email.slice(0,2).toUpperCase();avatar.title=driveStatus.email;
+   live=true;teamUI.showSwitcher();const avatar=$('.avatar');avatar.hidden=false;avatar.textContent=driveStatus.email.slice(0,2).toUpperCase();avatar.title=driveStatus.email;
    const stored=await api('/api/library');databaseRevision=stored.revision;
    const data=stored.data;
    if(data){photos=data.photos;collections=data.collections;sources=data.sources;if(Array.isArray(data.collapsedSources))collapsedSources=new Set(data.collapsedSources)}

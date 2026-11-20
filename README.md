@@ -36,3 +36,9 @@ Publish via Google Auth Platform → Audience after preparing the public app hom
 
 - [Google app audience and testing](https://support.google.com/cloud/answer/15549945)
 - [Google Drive scopes and review](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+
+## Team workspaces
+
+After signing in, open the sidebar workspace switcher and choose **Create team workspace**. In **Workspace settings**, the creator can add Drive folders and grant access to a Google email as an Editor or Viewer. The invite adds the workspace to that account's switcher. Share the folders separately in Google Drive. Editors can organize existing photos with workspace tags and collections, and Viewers can browse. Workspace edits and personal-library edits are stored separately, even for the same Drive file.
+
+To test this branch with real Google accounts on Vercel, configure the Preview environment with a separate Redis database and session key, a stable Preview origin as `APP_ORIGIN`, and a Google OAuth client whose allowed callback is that origin followed by `/auth/google/callback`. Keep your Preview credentials separate from the Production variables. The automated tests use simulated Google accounts and Drive files.
