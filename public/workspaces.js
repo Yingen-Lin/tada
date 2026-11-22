@@ -58,39 +58,70 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     if(workspace?.id === id) await refreshWorkspace(id);
   }
 
+  const menu = get('#workspace-menu');
+
+  function closeMenu(restoreFocus = false) {
+    menu.hidden = true;
+    chooser.setAttribute('aria-expanded','false');
+    if(restoreFocus) chooser.focus();
+  }
+
   async function choose() {
+    if(!menu.hidden) return closeMenu(true);
     chooser.disabled = true;
     try {
       const teams = await apiWorkspace();
-      const option = (id,label,selected) =>
-        `<option value="${esc(id)}" ${selected ? 'selected' : ''}>${esc(label)}</option>`;
-      modal('Switch workspace','Choose where to browse and save your library.',
-        `<label class="field-label" for="workspace-choice">Workspace</label>
-         <select class="modal-input" id="workspace-choice">
-         ${option('personal','Personal library · Only you',!workspace)}
-         ${teams.map(team => option(team.id,team.name,workspace?.id === team.id)).join('')}
-         ${option('create','Create team workspace',false)}
-         </select>`,'Continue',modalTask(async () => {
-          const destination = get('#workspace-choice').value;
-          if(destination === 'create') {
-            closeModal();
-            create();
-          } else if(destination === 'personal') {
-            opening++;
-            workspace = null;
-            closeModal();
-            renderPersonal();
-          } else {
-            await openWorkspace(destination);
-            closeModal();
-          }
-        }));
+      const option = (id,label,subtitle,selected) =>
+        `<button type="button" data-destination="${esc(id)}" ${selected ? 'aria-current="true"' : ''}>
+          <span><strong>${esc(label)}</strong><small>${esc(subtitle)}</small></span>${selected ? icon('check') : ''}
+        </button>`;
+      menu.innerHTML = option('personal','Personal library','Only you',!workspace) +
+        teams.map(team => option(team.id,team.name,roleLabel(team.role),workspace?.id === team.id)).join('') +
+        '<button type="button" class="workspace-menu-create" data-destination="create">Create team workspace</button>';
+      menu.hidden = false;
+      chooser.setAttribute('aria-expanded','true');
+      menu.querySelector('button').focus();
     } catch(error) {
       toast(error.message);
     } finally {
       chooser.disabled = false;
     }
   }
+
+  menu.onclick = async event => {
+    const destination = event.target.closest('[data-destination]')?.dataset.destination;
+    if(!destination) return;
+    closeMenu(true);
+    if(destination === 'create') return create();
+    if(destination === 'personal') {
+      opening++;
+      workspace = null;
+      renderPersonal();
+      return;
+    }
+    try {await openWorkspace(destination);}
+    catch(error) {toast(error.message);}
+  };
+  menu.onkeydown = event => {
+    if(event.key === 'Escape') {
+      event.preventDefault();
+      closeMenu(true);
+      return;
+    }
+    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...menu.querySelectorAll('button')];
+    const index = buttons.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+      (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].focus();
+  };
+  document.addEventListener('click',event => {
+    if(!event.target.closest('#workspace-menu-root')) closeMenu();
+  });
+  get('#workspace-menu-root').addEventListener('focusout',event => {
+    if(event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) closeMenu();
+  });
 
   function create() {
     modal('Create team workspace','Invite people and connect shared Google Drive folders after creating the workspace.',
@@ -101,6 +132,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
         view = 'settings';
         closeModal();
         render();
+        addFolder();
       }));
   }
 
@@ -176,7 +208,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     const unavailable = isAdmin() ? workspace.unavailableSources.map(id => `<div class="team-row"><span>Drive folder unavailable to your account</span>
       <button type="button" class="filter-button" data-team-remove-source="${esc(id)}">Remove</button></div>`).join('') : '';
     const members = !isAdmin() ? '' : `<section class="storage-card team-settings-card"><div>
-      <h2>Members & roles</h2><p class="settings-note">Invite the email people use to sign in with Google. Share the corresponding folders separately in Drive.</p>
+      <h2>Members & roles</h2><p class="settings-note">Roles control access to this TADA workspace. Share each folder with members in Google Drive so they can see its photos.</p>
       <div class="team-row"><span>${esc(workspace.ownerEmail)}</span><strong>Administrator</strong></div>
       ${workspace.members.map(member => `<div class="team-row"><span>${esc(member.email)}<small>${esc(roleLabel(member.role))}</small></span>
         <button type="button" class="filter-button" data-team-member="${esc(member.email)}">Edit access</button></div>`).join('')}
@@ -225,15 +257,16 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
 
   function memberForm(email) {
     const current = workspace.members.find(item => item.email === email);
-    modal(current ? 'Edit member access' : 'Invite member',`Membership in ${workspace.name}.`,
+    modal(current ? 'Edit member access' : 'Invite member',`This gives access to ${workspace.name} in TADA. Share the folders with this email in Google Drive separately.`,
       `<label class="field-label" for="team-member-email">Google account email</label>
        <input class="modal-input" id="team-member-email" type="email" required value="${esc(email || '')}" ${current ? 'readonly' : 'autofocus'}>
        <label class="field-label" for="team-member-role">Role</label>
-       <select class="modal-input" id="team-member-role"><option value="editor" ${current?.role === 'editor' ? 'selected' : ''}>Editor · Tags and collections</option>
-       <option value="viewer" ${current?.role === 'viewer' ? 'selected' : ''}>Viewer · Browse library</option>
-       ${current ? '<option value="remove">Remove access</option>' : ''}</select>`,
+       <div class="choice-list" id="team-member-role">
+       <label class="collection-choice"><input type="radio" name="member-role" value="editor" ${current?.role !== 'viewer' ? 'checked' : ''}> Editor · Tags and collections</label>
+       <label class="collection-choice"><input type="radio" name="member-role" value="viewer" ${current?.role === 'viewer' ? 'checked' : ''}> Viewer · Browse library</label>
+       ${current ? '<label class="collection-choice"><input type="radio" name="member-role" value="remove"> Remove access</label>' : ''}</div>`,
       current ? 'Save access' : 'Add to workspace',modalTask(async () => {
-        await change({action:'set-member',email:get('#team-member-email').value,role:get('#team-member-role').value});
+        await change({action:'set-member',email:get('#team-member-email').value,role:get('#team-member-role input:checked').value});
         closeModal();
         if(!current) toast('Member added. They can find this workspace next time they sign in.');
       }));
@@ -282,6 +315,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   }
 
   chooser.onclick = choose;
+  chooser.onkeydown = event => {if(event.key === 'ArrowDown'){event.preventDefault();void choose();}};
   sidebar.onclick = event => {
     const target = event.target.closest('[data-team-view]');
     if(!target) return;

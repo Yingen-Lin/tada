@@ -3,7 +3,7 @@
 <body><div id="startup-status" class="startup-status" role="status" hidden><span class="loading-orbit"></span>Opening your library…</div><div class="app-frame">
 <aside class="sidebar">
  <a class="brand" href="#" aria-label="TADA home"><span class="brand-icon" data-icon="aperture" data-icon-size="32"></span><span><b>TADA</b></span></a>
- <button class="workspace" id="workspace-switcher" type="button" hidden><span class="workspace-avatar" id="workspace-initial">P</span><span><strong id="workspace-title">Personal library</strong><small id="workspace-subtitle">Only you</small></span><span class="workspace-arrow" data-icon="chevron-down"></span></button>
+ <div id="workspace-menu-root"><button class="workspace" id="workspace-switcher" type="button" aria-expanded="false" aria-controls="workspace-menu" hidden><span class="workspace-avatar" id="workspace-initial">P</span><span><strong id="workspace-title">Personal library</strong><small id="workspace-subtitle">Only you</small></span><span class="workspace-arrow" data-icon="chevron-down"></span></button><div id="workspace-menu" class="dropdown-menu" role="group" aria-label="Switch workspace" hidden></div></div>
  <div class="sidebar-scroll">
  <div class="section-label">LIBRARY</div>
  <button class="nav-item active" id="all-photos"><span data-icon="grid"></span>All photos<b id="total-count">0</b></button>
