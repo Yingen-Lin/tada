@@ -8,13 +8,19 @@ import {pipeline} from 'node:stream/promises';
 import {FOLDER_MIME,FILE_FIELDS,fileId,indexFolder} from './drive.js';
 import {workspaceService} from './workspaces.js';
 import {openLibraryStore} from './storage.js';
-import {hostedConfigured,hostedLibraryStore,hostedSessions} from './hosted-storage.js';
+import {hostedConfigured as redisConfigured,hostedLibraryStore,hostedSessions} from './hosted-storage.js';
+import {neonStorage} from './neon-storage.js';
 
 const root=resolve(fileURLToPath(new URL('../public/',import.meta.url)));
-const sessions=hostedConfigured()?hostedSessions():new Map();
+const previewUrl=process.env.VERCEL_ENV==='preview'&&process.env.VERCEL_GIT_COMMIT_REF==='team-workspace'
+  ? process.env.TADA_PREVIEW_DATABASE_URL : null;
+const previewStorage=previewUrl?neonStorage(previewUrl,process.env.SESSION_ENCRYPTION_KEY):null;
+const hostedConfigured=()=>Boolean(previewStorage)||redisConfigured();
+const sessions=previewStorage?.sessions||(redisConfigured()?hostedSessions():new Map());
 let libraryStore;
 const storage=()=>{
   if(process.env.VERCEL&&!hostedConfigured())throw Object.assign(new Error('Configure the TADA database first.'),{status:503});
+  if(previewStorage) return previewStorage.library;
   return libraryStore||(libraryStore=hostedConfigured()?hostedLibraryStore():openLibraryStore(process.env.LIBRARY_DB_PATH||resolve('.local/tada.sqlite')));
 };
 const port=Number(process.env.PORT||4180);
