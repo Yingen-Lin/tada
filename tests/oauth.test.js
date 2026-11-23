@@ -108,7 +108,8 @@ test('team workspaces share edits without granting Drive access or changing pers
  let refreshed=false;
  const image=(id,parent)=>({
   id,name:id+'.jpg',parents:[parent],mimeType:'image/jpeg',
-  thumbnailLink:'https://lh3.googleusercontent.com/'+id
+  ...(id===photoA ? {thumbnailLink:'https://lh3.googleusercontent.com/'+id} : {}),
+  size:'100',capabilities:{canDownload:id===photoB}
  });
  globalThis.fetch=async(resource,options)=>{
   const url=new URL(resource);
@@ -128,6 +129,10 @@ test('team workspaces share edits without granting Drive access or changing pers
    if(allowed.has(parent))return Response.json({files:files.filter(file=>file.parents[0]===parent)});
   }
   const file=files.find(item=>item.id===id&&allowed.has(item.parents[0]));
+  if(file&&url.searchParams.get('alt')==='media'){
+   assert.equal(file.capabilities.canDownload,true);
+   return new Response('original photo',{headers:{'Content-Type':'image/jpeg'}});
+  }
   return file ? Response.json(file) : new Response(null,{status:404});
  };
 
@@ -182,9 +187,13 @@ test('team workspaces share edits without granting Drive access or changing pers
   assert.equal((await request(path+'/files/'+photoB+'/thumbnail',{cookie:viewer})).status,404);
   const preview=await request(path+'/files/'+photoA+'/thumbnail',{cookie:viewer});
   assert.equal(preview.status,200);assert.equal(preview.body,'team photo');
+  const fallback=await request(path+'/files/'+photoB+'/thumbnail',{cookie:editor});
+  assert.equal(fallback.status,200);assert.equal(fallback.body,'original photo');
   assert.equal((await request(path+'/files/'+photoA+'/thumbnail',{cookie:outsider})).status,404);
   assert.equal((await requestJson('/api/library',owner)).data.data,null);
   refreshed=true;
+  const restrictedPreview=await request(path+'/files/'+newPhoto+'/thumbnail',{cookie:viewer});
+  assert.match(restrictedPreview.body,/Preview unavailable/);
   assert.ok((await view(editor)).data.photos.some(photo=>photo.id===newPhoto));
   driveAccess.editor.delete(folderA);
   assert.equal((await apply(editor,{action:'edit-photo',photoId:photoA,tag:'Blocked',tagOperation:'add'})).status,404);

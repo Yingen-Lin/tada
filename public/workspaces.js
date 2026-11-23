@@ -287,7 +287,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     const edit = canEdit();
     modal(photo.name,edit ? destination() : `${workspace.name} · Viewer`,
       `<div class="team-preview"><img src="${media(id,'thumbnail')}" alt="${esc(photo.name)}">
-      ${isDemo() ? '' : `<a class="text-button" href="${media(id,'download')}" download>Download original</a>`}</div>
+      ${isDemo() ? '' : `<a class="text-button" href="https://drive.google.com/file/d/${encodeURIComponent(id)}/view" target="_blank" rel="noopener noreferrer">Open in Google Drive</a> · <a class="text-button" href="${media(id,'download')}" download>Download original</a>`}</div>
       <div class="photo-tags">${photo.tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</div>
       ${edit ? `<label class="field-label" for="team-tag">Tag</label><div class="team-tag-controls">
         <input class="modal-input" id="team-tag" maxlength="80" placeholder="Enter a tag">
