@@ -136,6 +136,10 @@ test('team workspaces share edits without granting Drive access or changing pers
    assert.equal(file.capabilities.canDownload,true);
    return new Response(id===largePhoto?largeFixture:'original photo',{headers:{'Content-Type':'image/jpeg'}});
   }
+  if(file&&account==='viewer'&&id===photoA){
+   const {parents,...withoutParents}=file;
+   return Response.json(withoutParents);
+  }
   return file ? Response.json(file) : new Response(null,{status:404});
  };
 

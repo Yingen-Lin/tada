@@ -78,9 +78,22 @@ async function visibleSources(workspace,get) {
 
 // Verify the current user's access to the file and its route to a bound
 // folder. A Drive ID alone conveys no workspace or Drive permission.
-async function authorizedPhoto(workspace,get,id) {
+const pendingProofScans = new Map();
+
+function sharedProofScan(workspace,user,get) {
+  const key = JSON.stringify([workspace.id,user.accountId,workspace.sources]);
+  let pending = pendingProofScans.get(key);
+  if(!pending) {
+    pending = visibleSources(workspace,get).finally(() => pendingProofScans.delete(key));
+    pendingProofScans.set(key,pending);
+  }
+  return pending;
+}
+
+async function authorizedPhoto(workspace,user,get,id) {
+  id = fileId(id);
   try {
-    const photo = await get(`files/${fileId(id)}`,{
+    const photo = await get(`files/${id}`,{
       fields:`${FILE_FIELDS},parents,trashed`,
       supportsAllDrives:'true'
     });
@@ -109,6 +122,19 @@ async function authorizedPhoto(workspace,get,id) {
   } catch(error) {
     if(!driveDenied(error)) throw error;
   }
+  // A shared item can appear in an authorized listing even when Drive omits
+  // parents or rejects a direct lookup. Verify membership via the same listing
+  // used by the gallery and use Drive's metadata from that listing.
+  let photo;
+  const matches = [];
+  for(const {binding,files} of await sharedProofScan(workspace,user,get)){
+    const found=files.find(file => file.id===id);
+    if(found){
+      photo ||= found;
+      matches.push({id:binding.id,direct:found.sourceFolderId===binding.id});
+    }
+  }
+  if(photo)return {photo,matches};
   throw fail(404,'This photo is unavailable in the workspace.');
 }
 
@@ -181,7 +207,7 @@ export function workspaceService(store,user,get) {
     async photo(id,photoId) {
       const workspace = await read(id);
       requireRole(workspace,user);
-      const proof = await authorizedPhoto(workspace,get,photoId);
+      const proof = await authorizedPhoto(workspace,user,get,photoId);
       const current = await read(id);
       requireRole(current,user);
       if(!boundPhoto(current,proof)) throw fail(404,'This photo is unavailable in the workspace.');
@@ -194,7 +220,7 @@ export function workspaceService(store,user,get) {
       const manage = ['set-member','add-source','remove-source'].includes(action);
       const allowed = manage ? admin : writeRoles;
       requireRole(workspace,user,allowed);
-      const operation = await prepareOperation(workspace,input,get,store);
+      const operation = await prepareOperation(workspace,user,input,get,store);
       const updated = await update(store,workspaceKey(id),current => {
         requireRole(current,user,allowed);
         operation(current);
@@ -222,7 +248,7 @@ function boundPhoto(workspace,proof) {
   ));
 }
 
-async function prepareOperation(workspace,input,get,store) {
+async function prepareOperation(workspace,user,input,get,store) {
   switch(input?.action) {
     case 'set-member': {
       const email = text(input.email,254,'Google account email').toLowerCase();
@@ -271,7 +297,7 @@ async function prepareOperation(workspace,input,get,store) {
           collectionId && !['add','remove'].includes(collectionOperation)) {
         throw fail(400,'Choose a tag or collection change.');
       }
-      const proof = await authorizedPhoto(workspace,get,id);
+      const proof = await authorizedPhoto(workspace,user,get,id);
       return current => {
         if(!boundPhoto(current,proof)) throw fail(404,'This photo is unavailable in the workspace.');
         if(tag) {
