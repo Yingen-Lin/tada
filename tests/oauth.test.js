@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable,Writable} from 'node:stream';
@@ -98,6 +99,8 @@ test('team workspaces share edits without granting Drive access or changing pers
  const photoA='shared-photo-aa';
  const photoB='shared-photo-bb';
  const newPhoto='shared-photo-cc';
+ const largePhoto='shared-photo-large';
+ const largeFixture=await sharp({create:{width:1200,height:600,channels:3,background:'#778899'}}).jpeg().toBuffer();
  const folderMime='application/vnd.google-apps.folder';
  const driveAccess={
   owner:new Set([folderA,folderB]),
@@ -109,7 +112,7 @@ test('team workspaces share edits without granting Drive access or changing pers
  const image=(id,parent)=>({
   id,name:id+'.jpg',parents:[parent],mimeType:'image/jpeg',
   ...(id===photoA ? {thumbnailLink:'https://lh3.googleusercontent.com/'+id} : {}),
-  size:'100',capabilities:{canDownload:id===photoB}
+  size:id===largePhoto?'8000000':'100',capabilities:{canDownload:[photoB,largePhoto].includes(id)}
  });
  globalThis.fetch=async(resource,options)=>{
   const url=new URL(resource);
@@ -123,7 +126,7 @@ test('team workspaces share edits without granting Drive access or changing pers
   const id=url.pathname.split('/').at(-1);
   const allowed=driveAccess[account];
   if([folderA,folderB].includes(id)&&allowed.has(id))return Response.json({id,name:id,mimeType:folderMime});
-  const files=[image(photoA,folderA),image(photoB,folderB),...(refreshed?[image(newPhoto,folderA)]:[])];
+  const files=[image(photoA,folderA),image(photoB,folderB),...(refreshed?[image(newPhoto,folderA),image(largePhoto,folderA)]:[])];
   if(id==='files'){
    const parent=url.searchParams.get('q').match(/^'([^']+)' in parents/)?.[1];
    if(allowed.has(parent))return Response.json({files:files.filter(file=>file.parents[0]===parent)});
@@ -131,7 +134,7 @@ test('team workspaces share edits without granting Drive access or changing pers
   const file=files.find(item=>item.id===id&&allowed.has(item.parents[0]));
   if(file&&url.searchParams.get('alt')==='media'){
    assert.equal(file.capabilities.canDownload,true);
-   return new Response('original photo',{headers:{'Content-Type':'image/jpeg'}});
+   return new Response(id===largePhoto?largeFixture:'original photo',{headers:{'Content-Type':'image/jpeg'}});
   }
   return file ? Response.json(file) : new Response(null,{status:404});
  };
@@ -194,6 +197,9 @@ test('team workspaces share edits without granting Drive access or changing pers
   refreshed=true;
   const restrictedPreview=await request(path+'/files/'+newPhoto+'/thumbnail',{cookie:viewer});
   assert.match(restrictedPreview.body,/Preview unavailable/);
+  const resized=await request(path+'/files/'+largePhoto+'/thumbnail',{cookie:viewer});
+  assert.equal(resized.status,200);
+  assert.equal(resized.headers['content-type'],'image/jpeg');
   assert.ok((await view(editor)).data.photos.some(photo=>photo.id===newPhoto));
   driveAccess.editor.delete(folderA);
   assert.equal((await apply(editor,{action:'edit-photo',photoId:photoA,tag:'Blocked',tagOperation:'add'})).status,404);

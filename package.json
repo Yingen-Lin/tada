@@ -14,6 +14,7 @@
     "build": "npm run check && node src/build.js"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.2.1"
+    "@neondatabase/serverless": "^1.2.1",
+    "sharp": "^0.35.5"
   }
 }

@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import http from 'node:http';
 import {randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -46,6 +47,32 @@ async function access(s){if(!s?.tokens)throw Object.assign(new Error('Connect Go
 async function google(s,path,params={}){const url=new URL(`https://www.googleapis.com/drive/v3/${path}`);url.search=new URLSearchParams(params);const response=await fetch(url,{headers:{Authorization:`Bearer ${await access(s)}`},signal:AbortSignal.timeout(30000)});if(!response.ok){const status=response.status;throw Object.assign(new Error(status===403?'Google Drive denied access. Check folder permissions and download restrictions.':status===404?'That folder or photo is unavailable. Check the link and your Google account.':'Google Drive request failed. Please try again.'),{status:[401,403,404].includes(status)?status:502})}return response.json()}
 const inlinePhotoTypes=new Set(['image/jpeg','image/png','image/webp','image/gif','image/avif']);
 const maxInlinePhoto=4_000_000;
+const maxResizeSource=25_000_000;
+
+async function resizePreview(response){
+  const reader=response.body.getReader();
+  const chunks=[];
+  let size=0;
+  try{
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      size+=value.byteLength;
+      if(size>maxResizeSource){
+        await reader.cancel();
+        return;
+      }
+      chunks.push(value);
+    }
+    const thumbnail=await sharp(Buffer.concat(chunks,size),{limitInputPixels:60_000_000})
+      .rotate().resize({width:900,height:900,fit:'inside',withoutEnlargement:true}).jpeg({quality:76}).toBuffer();
+    return new Response(thumbnail,{headers:{'Content-Type':'image/jpeg'}});
+  }catch{
+    return undefined;
+  }finally{
+    reader.releaseLock();
+  }
+}
 
 function noThumbnail(res){
   res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'private, no-store'});
@@ -69,11 +96,13 @@ async function sendPhoto(s,res,id,kind,file){
       }
     }
     const size=Number(file.size);
-    if(!stream&&file.capabilities?.canDownload===true&&inlinePhotoTypes.has(file.mimeType)&&size>0&&size<=maxInlinePhoto){
+    if(!stream&&file.capabilities?.canDownload===true&&inlinePhotoTypes.has(file.mimeType)&&size>0&&size<=maxResizeSource){
       stream=await load(original);
-      if(!stream.ok||!stream.body||!inlinePhotoTypes.has(imageType(stream))||Number(stream.headers.get('content-length'))>maxInlinePhoto){
+      if(!stream.ok||!stream.body||!inlinePhotoTypes.has(imageType(stream))||Number(stream.headers.get('content-length'))>maxResizeSource){
         await stream.body?.cancel();
         stream=undefined;
+      }else if(size>maxInlinePhoto||Number(stream.headers.get('content-length'))>maxInlinePhoto){
+        stream=await resizePreview(stream);
       }
     }
     if(!stream)return noThumbnail(res);
