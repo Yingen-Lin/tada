@@ -1,6 +1,6 @@
 import {createWorkspaceDemo} from './workspace-demo.js';
 import {createWorkspaceUI} from './workspaces.js';
-import {icon,hydrateIcons} from "./icons.js";
+import {icon,hydrateIcons,folderNavIcon} from "./icons.js";
 import {mergePhotos,normalizeTags,getSourceViews} from "./library.js";
 const $ = (s) => document.querySelector(s);
 const imageUrl = photo => `/api/drive/files/${encodeURIComponent(photo.driveId)}/thumbnail`;
@@ -12,14 +12,14 @@ let photos=[],collections=[],sources=[];
 let activeFolder=null, activeCollection=null, query='', activeTags=new Set(), selected=new Set(), limit=48, sort='newest', compact=false, toastTimer;
 const esc = (value) => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const allTags = () => [...new Set(photos.flatMap(p=>p.tags))].sort();
-let saveQueueLabel='Saved to database';
-function setSaveStatus(text,failed=false){saveQueueLabel=text;const el=$('#save-status');el.hidden=!live||!$('#team-page').hidden;el.textContent=text;el.classList.toggle('failed',failed)}
+let saveQueueLabel='';
+let saveStatusFailed=false;
+function setSaveStatus(text,failed=false){saveQueueLabel=text;saveStatusFailed=failed;const el=$('#save-status');el.hidden=!failed||!live||!$('#team-page').hidden;el.textContent=text;el.classList.toggle('failed',failed)}
 function librarySnapshot(){return {photos,collections,sources,collapsedSources:[...collapsedSources]}}
 function save(){
  const snapshot=JSON.parse(JSON.stringify(librarySnapshot()));
  if(!live||!storageReady||saveFailed)return Promise.resolve();
- setSaveStatus('Saving…');
- saveQueue=saveQueue.then(async()=>{if(saveFailed)return;try{const result=await api('/api/library',{method:'POST',body:JSON.stringify({revision:databaseRevision,data:snapshot})});databaseRevision=result.revision;setSaveStatus('Saved to database')}catch(error){saveFailed=true;lastSaveError=error.message;setSaveStatus('Not saved · View details',true);toast(error.message)}});
+ saveQueue=saveQueue.then(async()=>{if(saveFailed)return;try{const result=await api('/api/library',{method:'POST',body:JSON.stringify({revision:databaseRevision,data:snapshot})});databaseRevision=result.revision;setSaveStatus('')}catch(error){saveFailed=true;lastSaveError=error.message;setSaveStatus('Not saved · View details',true);toast(error.message)}});
  return saveQueue;
 }
 function toast(message){clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4200)}
@@ -29,8 +29,8 @@ function filtered(){const available=new Set(sources.flatMap(s=>s.ids));let resul
 function navigate(folder=null,id=null){activeFolder=folder;activeCollection=id;location.hash='library';selected.clear();limit=48;render();$('main').scrollTo({top:0,behavior:'smooth'})}
 function renderNav(){
  $('#all-photos').classList.toggle('active',!activeFolder&&!activeCollection);
- $('#source-count').textContent=sources.length;$('#total-count').textContent=live?new Set(sources.flatMap(s=>s.ids)).size:photos.length;$('#mode-switch').textContent=live?'GOOGLE DRIVE':'SIGN IN';$('.library-actions>span:last-child').textContent=live?'Google Drive':'Signed out';
- $('#folders').innerHTML=getSourceViews(sources,collapsedSources).map(s=>{const expandable=!!s.children?.length;return `<button title="${esc(s.path||s.name)}${expandable?' · Click to show or hide subfolders':''}" class="nav-item ${s.child?'child-folder':''} ${activeFolder===s.id?'active':''}" data-folder="${esc(s.id)}" ${expandable?`data-folder-toggle="${esc(s.id)}" aria-expanded="${!collapsedSources.has(s.id)}"`:''}><span>${expandable?`<svg class="folder-chevron ${collapsedSources.has(s.id)?'collapsed':''}" aria-hidden="true" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 8 4 4 4-4"/></svg>`:icon('folder')}</span><span class="nav-text">${esc(s.name)}</span><b>${s.ids.length}</b></button>`}).join('');
+ $('#source-count').textContent=sources.length;$('#total-count').textContent=live?new Set(sources.flatMap(s=>s.ids)).size:photos.length;$('.library-actions>span:last-child').textContent=live?'Google Drive':'Signed out';
+ $('#folders').innerHTML=getSourceViews(sources,collapsedSources).map(s=>{const expandable=!!s.children?.length;return `<button title="${esc(s.path||s.name)}${expandable?' · Click to show or hide subfolders':''}" class="nav-item ${s.child?'child-folder':''} ${activeFolder===s.id?'active':''}" data-folder="${esc(s.id)}" ${expandable?`data-folder-toggle="${esc(s.id)}" aria-expanded="${!collapsedSources.has(s.id)}"`:''}><span>${folderNavIcon(expandable,collapsedSources.has(s.id))}</span><span class="nav-text">${esc(s.name)}</span><b>${s.ids.length}</b></button>`}).join('');
  $('#collections-nav').innerHTML=collections.map(c=>`<button class="nav-item ${activeCollection===c.id?'active':''}" data-collection="${esc(c.id)}"><span class="collection-nav-icon">${icon('collection')}</span><span class="nav-text">${esc(c.name)}</span><b>${c.ids.length}</b></button>`).join('');
  $('#collection-cards').innerHTML=collections.slice(0,3).map(c=>{const p=photos.find(p=>c.ids.includes(p.id));return `<button class="collection-card" data-collection="${esc(c.id)}" style="background:${c.color}">${p?`<img class="collection-cover" src="${imageUrl(p,700)}" alt="" loading="lazy">`:''}<span class="collection-shade"></span><span class="tiny-label">POST COLLECTION</span><span class="collection-card-info"><strong>${esc(c.name)}</strong><small>${c.ids.length} photos · Curated by you</small></span><span class="arrow">${icon('arrow-up-right')}</span></button>`}).join('');
  $('#collection-strip').hidden=!!activeCollection||!!activeFolder||!collections.length;
@@ -50,7 +50,7 @@ function renderGallery(){const results=filtered(),visible=results.slice(0,limit)
  renderSelection();
 }
 function renderSelection(){const visible=filtered().slice(0,limit);const n=visible.filter(p=>selected.has(p.id)).length;$('#select-all').checked=!!visible.length&&n===visible.length;$('#select-all').indeterminate=n>0&&n<visible.length;$('#selection-bar').hidden=!selected.size;$('#selection-count').textContent=`${selected.size} selected`;$('#remove-from-collection').hidden=!activeCollection;$('#select-label').textContent=n===visible.length&&visible.length?'All visible photos selected':'Select visible photos';document.querySelectorAll('[data-select]').forEach(el=>{el.checked=selected.has(el.dataset.select);el.closest('.photo-card').classList.toggle('selected',el.checked)})}
-function render(){if(teamUI.render())return;setSaveStatus(saveFailed?'Not saved · View details':saveQueueLabel,saveFailed);renderNav();renderTags();renderGallery();const settings=location.hash.startsWith('#settings');$('#library-page').hidden=settings;$('#settings-page').hidden=!settings;$('#settings').classList.toggle('active',settings);if(settings){$('#all-photos').classList.remove('active');$('#selection-bar').hidden=true;$('#new-collection-side').hidden=true;$('#breadcrumb').textContent='Settings';renderSettings(location.hash.split('/')[1]||'connections')}hydrateIcons()}
+function render(){if(teamUI.render())return;setSaveStatus(saveQueueLabel,saveStatusFailed);renderNav();renderTags();renderGallery();const settings=location.hash.startsWith('#settings');$('#library-page').hidden=settings;$('#settings-page').hidden=!settings;$('#settings').classList.toggle('active',settings);if(settings){$('#all-photos').classList.remove('active');$('#selection-bar').hidden=true;$('#new-collection-side').hidden=true;$('#breadcrumb').textContent='Settings';renderSettings(location.hash.split('/')[1]||'connections')}hydrateIcons()}
 function closeModal(){$('#modal').close()}
 function modal(title,description,body,actionLabel,onSubmit,{danger=false,wide=false}={}){
  const el=$('#modal');delete el.dataset.previewId;delete el.dataset.teamPreviewId;el.onkeydown=null;el.className=wide?'photo-modal':'';$('#modal-content').innerHTML=`<form id="modal-form"><div class="modal-head"><h2>${esc(title)}</h2><button type="button" id="close-modal" aria-label="Close dialog">${icon('close')}</button></div><p class="modal-description">${esc(description)}</p>${body}<p id="modal-error" class="inline-error" role="alert"></p>${actionLabel?`<div class="modal-actions"><button type="button" id="cancel-modal">Cancel</button><button type="submit" class="${danger?'danger':'primary'}">${esc(actionLabel)}</button></div>`:''}</form>`;
@@ -116,7 +116,7 @@ $('#comfortable').onclick=()=>{compact=false;$('#comfortable').classList.add('ac
 $('#select-all').onchange=e=>{filtered().slice(0,limit).forEach(p=>e.target.checked?selected.add(p.id):selected.delete(p.id));renderSelection()};$('#clear-selection').onclick=()=>{selected.clear();renderSelection()};
 $('#load-more').onclick=()=>{limit+=48;renderGallery()};$('#bulk-tags').onclick=bulkTags;$('#add-to-collection').onclick=addToCollection;
 $('#clear-filters').onclick=()=>{query='';$('#search').value='';activeTags.clear();navigate()};
-$('#settings').onclick=()=>openSettings();
+$('#settings').onclick=()=>{if(!teamUI.settings())openSettings()};
 $('#collection-settings').onclick=()=>openSettings('collections');
 $('#remove-from-collection').onclick=()=>{const c=collection();const n=selected.size;c.ids=c.ids.filter(id=>!selected.has(id));selected.clear();save();render();toast(`${n} photos removed from this collection. Originals kept.`)};
 $('#download').onclick=downloadOriginals;
@@ -149,7 +149,7 @@ function bindRealConnections(){
 async function loadDriveFolders(pageToken=''){const data=await api('/api/drive/folders'+(pageToken?'?pageToken='+encodeURIComponent(pageToken):''));$('#drive-folder-list').insertAdjacentHTML('beforeend',(data.files||[]).map(f=>`<button type="button" class="drive-folder-option" data-drive-folder="${esc(f.id)}">${icon('folder',16)} ${esc(f.name)}</button>`).join(''));document.querySelectorAll('[data-drive-folder]').forEach(b=>b.onclick=()=>{$('#drive-folder-input').value=b.dataset.driveFolder});$('#more-drive-folders').hidden=!data.nextPageToken;$('#more-drive-folders').onclick=()=>loadDriveFolders(data.nextPageToken).catch(e=>$('#drive-error').textContent=e.message)}
 async function importFolder(folderId,recursive){if(driveBusy)throw new Error('Wait for the current source to finish loading.');driveBusy=true;try{const data=await api('/api/drive/index',{method:'POST',body:JSON.stringify({folderId,recursive})});const incoming=data.files.map(f=>({id:'drive-'+f.id,driveId:f.id,title:f.name,filename:f.name,photographer:f.sourcePath,sourcePath:f.sourcePath,sourceFolderId:f.sourceFolderId,size:f.size?`${(Number(f.size)/1048576).toFixed(1)} MB`:'—',date:f.modifiedTime?.slice(0,10)||'',modifiedTime:f.modifiedTime,width:f.imageMediaMetadata?.width,height:f.imageMediaMetadata?.height,tags:[],canDownload:f.capabilities?.canDownload!==false}));photos=mergePhotos(photos,incoming);const source={id:'drive-'+data.folder.id,driveId:data.folder.id,name:data.folder.name,path:data.folder.name,recursive,ids:incoming.map(p=>p.id),children:(data.folders||[]).filter(f=>f.id!==data.folder.id).map(f=>({id:'drive-'+f.id,name:f.name,path:f.path,ids:incoming.filter(p=>p.sourceFolderId===f.id||p.sourcePath.startsWith(f.path+' / ')).map(p=>p.id)})),syncedAt:data.syncedAt};sources=sources.filter(s=>s.id!==source.id);sources.push(source);await save();if(saveFailed)throw new Error(lastSaveError)}finally{driveBusy=false}}
 function downloadOriginals(){const chosen=photos.filter(p=>selected.has(p.id));modal('Download originals',`${chosen.length} selected photos. Downloads use the original Google Drive files.`,chosen.map(p=>`<a class="download-file" href="/api/drive/files/${esc(p.driveId)}/download" download>${esc(p.filename)} <span>${p.canDownload?'↓ Download':'Owner may restrict download'}</span></a>`).join(''),'Done',closeModal)}
-$('#mode-switch').onclick=()=>{if(!teamUI.settings())openSettings('connections')};
+$('#mode-switch').onclick=()=>openSettings('connections');
 async function bootstrap(){
  $('#startup-status').hidden=false;$('.app-frame').inert=true;
  try{
@@ -161,7 +161,7 @@ async function bootstrap(){
    const data=stored.data;
    if(data){photos=data.photos;collections=data.collections;sources=data.sources;if(Array.isArray(data.collapsedSources))collapsedSources=new Set(data.collapsedSources)}
    storageReady=true;saveFailed=false;
-   setSaveStatus('Saved to database');
+   setSaveStatus('');
    for(const source of [...sources]){try{await importFolder(source.driveId,source.recursive)}catch(e){toast(e.message)}}
    await saveQueue;
   }else{openSettings('connections')}

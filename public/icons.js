@@ -9,6 +9,7 @@ const paths={
   plus:'<path d="M12 5v14M5 12h14"/>',
   close:'<path d="m6 6 12 12M6 18 18 6"/>',
   check:'<path d="m5 12 4 4L19 6"/>',
+  'chevron-right':'<path d="m9 6 6 6-6 6"/>',
   'chevron-down':'<path d="m6 9 6 6 6-6"/>',
   'arrow-up-right':'<path d="M7 17 17 7M7 7h10v10"/>',
   refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.2 6.2A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.8 5.8"/>',
@@ -21,4 +22,7 @@ const paths={
   aperture:'<circle cx="12" cy="12" r="9"/><path d="m14.5 3.4 4.8 8.3M20.6 9.5l-4.8 8.3M18.1 18.6H8.5M9.5 20.6l-4.8-8.3M3.4 14.5l4.8-8.3M5.9 5.4h9.6"/>'
 };
 export function icon(name,size=18){if(name==='drive')return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><path fill="#83a78f" d="M9 2 0 17l3 5L12 7Z"/><path fill="#d9c386" d="M9 2h6l9 15h-6Z"/><path fill="#a99dc7" d="M6 17h18l-3 5H3Z"/></svg>`;return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.image}</svg>`}
+export function folderNavIcon(expandable,collapsed){
+  return expandable ? icon(collapsed ? 'chevron-right' : 'chevron-down') : icon('folder');
+}
 export function hydrateIcons(root=document){root.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon,Number(el.dataset.iconSize)||18))}

@@ -1,11 +1,12 @@
 import {getSourceViews,normalizeTags} from './library.js';
-import {icon,hydrateIcons} from './icons.js';
+import {icon,hydrateIcons,folderNavIcon} from './icons.js';
 
 export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderPersonal}) {
   const get = selector => document.querySelector(selector);
   const chooser = get('#workspace-switcher');
   const section = get('#team-page');
   const sidebar = get('#team-nav');
+  const settingsButton = get('#settings');
   let workspace = null;
   let opening = 0;
   let view = 'photos';
@@ -146,17 +147,18 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   const canEdit = () => workspace.role !== 'viewer';
   const isAdmin = () => workspace.role === 'admin';
   const destination = () => `Save to ${workspace.name} · Team members`;
-  const navButton = (id,label,iconName,count,folder) => `<button type="button" class="nav-item ${folder?.child ? 'child-folder' : ''} ${view === id ? 'active' : ''}" data-team-view="${esc(id)}" ${folder?.children?.length ? `data-team-toggle="${esc(folder.id)}" aria-expanded="${!collapsed.has(folder.id)}"` : ''} ${view === id ? 'aria-current="page"' : ''}>${icon(folder?.children?.length?(collapsed.has(folder.id)?'chevron-right':'chevron-down'):iconName)}<span class="nav-text">${esc(label)}</span>${count === undefined ? '' : `<b>${count}</b>`}</button>`;
+  const navButton = (id,label,iconName,count,folder) => `<button type="button" class="nav-item ${folder?.child ? 'child-folder' : ''} ${view === id ? 'active' : ''}" data-team-view="${esc(id)}" ${folder?.children?.length ? `data-team-toggle="${esc(folder.id)}" aria-expanded="${!collapsed.has(folder.id)}"` : ''} ${view === id ? 'aria-current="page"' : ''}><span ${iconName === 'collection' ? 'class="collection-nav-icon"' : ''}>${folder ? folderNavIcon(Boolean(folder.children?.length),collapsed.has(folder.id)) : icon(iconName)}</span><span class="nav-text">${esc(label)}</span>${count === undefined ? '' : `<b>${count}</b>`}</button>`;
   const media = (id,kind) => isDemo() ? '/placeholder.svg' : `/api/workspaces/${encodeURIComponent(workspace.id)}/files/${encodeURIComponent(id)}/${kind}`;
 
   function render() {
     const active = Boolean(workspace);
-    get('.sidebar-scroll').hidden = active;
-    get('.sidebar-bottom').hidden = active;
+    get('.sidebar-scroll:not(#team-nav)').hidden = active;
     sidebar.hidden = !active;
     section.hidden = !active;
-    get('#mode-switch').hidden = active;
-    get('#team-context').hidden = !active;
+    const showContext = active || !get('.avatar').hidden || isDemo();
+    get('#mode-switch').hidden = showContext;
+    get('#team-context').hidden = !showContext;
+    get('#team-context').textContent = active ? 'Team workspace' : 'Personal library';
     const demoButton = get('#start-workspace-demo');
     if(isDemo()) demoButton.hidden = active;
     get('#workspace-title').textContent = workspace?.name || 'Personal library';
@@ -170,16 +172,16 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     get('#save-status').hidden = true;
     const source = getSourceViews(workspace.sources).find(item => 'folder:' + item.id === view);
     const collection = workspace.collections.find(item => 'collection:' + item.id === view);
-    const title = view === 'settings' ? 'Workspace settings' : source?.name || collection?.name || 'All photos';
+    settingsButton.classList.toggle('active',view === 'settings');
+    const title = view === 'settings' ? 'Settings' : source?.name || collection?.name || 'All photos';
     get('#breadcrumb').textContent = `${workspace.name} / ${title}`;
 
     sidebar.innerHTML = `<div class="section-label">LIBRARY</div>
       ${navButton('photos','All photos','grid',workspace.photos.length)}
-      <div class="section-label folder-label">SOURCE FOLDERS</div>
+      <div class="section-label folder-label">SOURCE FOLDERS <span>${workspace.sources.length + (isAdmin() ? workspace.unavailableSources.length : 0)}</span></div>
       ${getSourceViews(workspace.sources,collapsed).map(item => navButton('folder:'+item.id,item.name,'folder',item.ids.length,item)).join('')}
-      <div class="section-label collection-label">POST COLLECTIONS</div>
-      ${workspace.collections.map(item => navButton('collection:'+item.id,item.name,'collection',item.ids.length)).join('')}
-      ${navButton('settings','Workspace settings','settings')}`;
+      <div class="section-label collection-label">POST COLLECTIONS${canEdit() ? '<button type="button" data-team-action="collection" aria-label="Create collection"><span data-icon="plus"></span></button>' : ''}</div>
+      ${workspace.collections.map(item => navButton('collection:'+item.id,item.name,'collection',item.ids.length)).join('')}`;
 
     const isSettings = view === 'settings';
     section.innerHTML = `${isDemo() ? '<p class="team-demo-note">Demo · Sample data. Changes reset when you reload the page.</p>' : ''}<section class="page-heading"><div><div class="eyebrow">TEAM WORKSPACE</div><h1>${esc(title)}</h1>
@@ -453,6 +455,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   chooser.onclick = choose;
   chooser.onkeydown = event => {if(event.key === 'ArrowDown'){event.preventDefault();void choose();}};
   sidebar.onclick = event => {
+    if(event.target.closest('[data-team-action="collection"]')) return createCollection();
     const target = event.target.closest('[data-team-view]');
     if(!target) return;
     const folderId=target.dataset.teamToggle;
