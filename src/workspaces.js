@@ -68,7 +68,7 @@ async function visibleSources(workspace,get) {
   for(const binding of workspace.sources) {
     try {
       const result = await indexFolder({rootId:binding.id,recursive:binding.recursive,get});
-      sources.push({binding,name:result.folder.name,files:result.files});
+      sources.push({binding,name:result.folder.name,folders:result.folders,files:result.files});
     } catch(error) {
       if(!driveDenied(error)) throw error;
     }
@@ -143,12 +143,16 @@ function teamView(workspace,user,indexed) {
   const photoMap = new Map();
   const sources = indexed.filter(({binding}) => workspace.sources.some(
     source => source.id === binding.id && source.recursive === binding.recursive
-  )).map(({binding,name,files}) => {
+  )).map(({binding,name,folders,files}) => {
+    const byId = new Map(folders.map(folder => [folder.id,{...folder,ids:[]}]));
     for(const file of files) {
+      for(let folder=byId.get(file.sourceFolderId);folder;folder=byId.get(folder.parentId)){
+        folder.ids.push(file.id);
+      }
       const tags = Object.hasOwn(workspace.tags,file.id) ? workspace.tags[file.id] : [];
-      photoMap.set(file.id,{id:file.id,name:file.name,modifiedTime:file.modifiedTime,tags});
+      photoMap.set(file.id,{id:file.id,name:file.name,modifiedTime:file.modifiedTime,tags,size:file.size,width:file.imageMediaMetadata?.width,height:file.imageMediaMetadata?.height,sourceFolderId:file.sourceFolderId});
     }
-    return {id:binding.id,name,recursive:binding.recursive,ids:files.map(file => file.id)};
+    return {id:binding.id,name,recursive:binding.recursive,ids:files.map(file => file.id),children:[...byId.values()].filter(folder => folder.id!==binding.id)};
   });
   return {
     id:workspace.id,name:workspace.name,role,

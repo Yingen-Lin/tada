@@ -96,6 +96,7 @@ test('team workspaces share edits without granting Drive access or changing pers
  const origin='http://127.0.0.1:4180';
  const folderA='shared-folder-a';
  const folderB='shared-folder-b';
+ const childFolder='shared-folder-child';
  const photoA='shared-photo-aa';
  const photoB='shared-photo-bb';
  const newPhoto='shared-photo-cc';
@@ -126,12 +127,17 @@ test('team workspaces share edits without granting Drive access or changing pers
   const id=url.pathname.split('/').at(-1);
   const allowed=driveAccess[account];
   if([folderA,folderB].includes(id)&&allowed.has(id))return Response.json({id,name:id,mimeType:folderMime});
-  const files=[image(photoA,folderA),image(photoB,folderB),...(refreshed?[image(newPhoto,folderA),image(largePhoto,folderA)]:[])];
+  if(id===childFolder&&allowed.has(folderA))return Response.json({id,name:'Nested',mimeType:folderMime,parents:[folderA]});
+  const files=[image(photoA,folderA),image(photoB,folderB),...(refreshed?[image(newPhoto,folderA),image(largePhoto,childFolder)]:[])];
   if(id==='files'){
    const parent=url.searchParams.get('q').match(/^'([^']+)' in parents/)?.[1];
-   if(allowed.has(parent))return Response.json({files:files.filter(file=>file.parents[0]===parent)});
+   if(allowed.has(parent)||parent===childFolder&&allowed.has(folderA)){
+    const found=files.filter(file=>file.parents[0]===parent);
+    if(parent===folderA)found.push({id:childFolder,name:'Nested',mimeType:folderMime});
+    return Response.json({files:found});
+   }
   }
-  const file=files.find(item=>item.id===id&&allowed.has(item.parents[0]));
+  const file=files.find(item=>item.id===id&&(allowed.has(item.parents[0])||item.parents[0]===childFolder&&allowed.has(folderA)));
   if(file&&url.searchParams.get('alt')==='media'){
    assert.equal(file.capabilities.canDownload,true);
    return new Response(id===largePhoto?largeFixture:'original photo',{headers:{'Content-Type':'image/jpeg'}});
@@ -172,7 +178,7 @@ test('team workspaces share edits without granting Drive access or changing pers
   assert.equal((await requestJson('/api/workspaces',editor)).data[0].role,'editor');
   assert.equal((await apply(editor,{action:'add-source',folderId:folderA})).status,403);
   for(const folderId of [folderA,folderB]){
-   assert.equal((await apply(owner,{action:'add-source',folderId,recursive:false})).status,200);
+   assert.equal((await apply(owner,{action:'add-source',folderId,recursive:folderId===folderA})).status,200);
   }
   assert.equal((await apply(editor,{action:'create-collection',name:'November'})).status,200);
   const collectionId=(await view(owner)).data.collections[0].id;
@@ -204,7 +210,10 @@ test('team workspaces share edits without granting Drive access or changing pers
   const resized=await request(path+'/files/'+largePhoto+'/thumbnail',{cookie:viewer});
   assert.equal(resized.status,200);
   assert.equal(resized.headers['content-type'],'image/jpeg');
-  assert.ok((await view(editor)).data.photos.some(photo=>photo.id===newPhoto));
+  const team=(await view(editor)).data;
+  assert.ok(team.photos.some(photo=>photo.id===newPhoto));
+  assert.deepEqual(team.sources.find(source=>source.id===folderA).children.map(({name,ids})=>({name,ids})),[{name:'Nested',ids:[largePhoto]}]);
+  assert.equal(team.photos.find(photo=>photo.id===largePhoto).sourceFolderId,childFolder);
   driveAccess.editor.delete(folderA);
   assert.equal((await apply(editor,{action:'edit-photo',photoId:photoA,tag:'Blocked',tagOperation:'add'})).status,404);
   assert.equal((await apply(owner,{action:'set-member',email:'viewer@example.com',role:'remove'})).status,200);

@@ -32,7 +32,7 @@ export async function indexFolder({rootId, recursive, get, maxFiles=10000, maxFo
       const page=await get('files',{q:parentQuery(folder.id),fields:`nextPageToken,incompleteSearch,files(${FILE_FIELDS})`,pageSize:'1000',includeItemsFromAllDrives:'true',supportsAllDrives:'true',...(token?{pageToken:token}:{})});
       if(page.incompleteSearch)throw new Error('Google returned an incomplete search. Choose a smaller folder and try again.');
       for(const file of page.files||[]) {
-        if(file.mimeType===FOLDER_MIME&&recursive)pending.push({id:file.id,name:file.name,path:`${folder.path} / ${file.name}`});
+        if(file.mimeType===FOLDER_MIME&&recursive)pending.push({id:file.id,parentId:folder.id,name:file.name,path:`${folder.path} / ${file.name}`});
         if(file.mimeType?.startsWith('image/'))files.set(file.id,{...file,sourcePath:folder.path,sourceFolderId:folder.id});
         if(files.size>maxFiles)throw new Error('This source exceeds 10,000 photos. Add smaller folders.');
       }

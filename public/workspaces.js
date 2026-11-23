@@ -1,3 +1,4 @@
+import {getSourceViews,normalizeTags} from './library.js';
 import {icon,hydrateIcons} from './icons.js';
 
 export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderPersonal}) {
@@ -10,6 +11,8 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   let view = 'photos';
   let visibleLimit = 48;
   let search = '';
+  let collapsed = new Set();
+  let previewIds = [];
 
   function apiWorkspace(id,action) {
     return api('/api/workspaces' + (id ? '/' + encodeURIComponent(id) : ''), action && {
@@ -41,6 +44,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     view = 'photos';
     visibleLimit = 48;
     search = '';
+    collapsed = new Set();
     render();
   }
 
@@ -140,7 +144,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   const canEdit = () => workspace.role !== 'viewer';
   const isAdmin = () => workspace.role === 'admin';
   const destination = () => `Save to ${workspace.name} · Team members`;
-  const navButton = (id,label,iconName,count) => `<button type="button" class="nav-item ${view === id ? 'active' : ''}" data-team-view="${esc(id)}" ${view === id ? 'aria-current="page"' : ''}>${icon(iconName)}<span class="nav-text">${esc(label)}</span>${count === undefined ? '' : `<b>${count}</b>`}</button>`;
+  const navButton = (id,label,iconName,count,folder) => `<button type="button" class="nav-item ${folder?.child ? 'child-folder' : ''} ${view === id ? 'active' : ''}" data-team-view="${esc(id)}" ${folder?.children?.length ? `data-team-toggle="${esc(folder.id)}" aria-expanded="${!collapsed.has(folder.id)}"` : ''} ${view === id ? 'aria-current="page"' : ''}>${icon(folder?.children?.length?(collapsed.has(folder.id)?'chevron-right':'chevron-down'):iconName)}<span class="nav-text">${esc(label)}</span>${count === undefined ? '' : `<b>${count}</b>`}</button>`;
   const media = (id,kind) => isDemo() ? '/placeholder.svg' : `/api/workspaces/${encodeURIComponent(workspace.id)}/files/${encodeURIComponent(id)}/${kind}`;
 
   function render() {
@@ -149,6 +153,8 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     get('.sidebar-bottom').hidden = active;
     sidebar.hidden = !active;
     section.hidden = !active;
+    get('#mode-switch').hidden = active;
+    get('#team-context').hidden = !active;
     const demoButton = get('#start-workspace-demo');
     if(isDemo()) demoButton.hidden = active;
     get('#workspace-title').textContent = workspace?.name || 'Personal library';
@@ -160,8 +166,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     get('#settings-page').hidden = true;
     get('#selection-bar').hidden = true;
     get('#save-status').hidden = true;
-    get('#mode-switch').textContent = isDemo() ? 'DEMO SETTINGS' : 'TEAM WORKSPACE';
-    const source = workspace.sources.find(item => 'folder:' + item.id === view);
+    const source = getSourceViews(workspace.sources).find(item => 'folder:' + item.id === view);
     const collection = workspace.collections.find(item => 'collection:' + item.id === view);
     const title = view === 'settings' ? 'Workspace settings' : source?.name || collection?.name || 'All photos';
     get('#breadcrumb').textContent = `${workspace.name} / ${title}`;
@@ -169,7 +174,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     sidebar.innerHTML = `<div class="section-label">LIBRARY</div>
       ${navButton('photos','All photos','grid',workspace.photos.length)}
       <div class="section-label folder-label">SOURCE FOLDERS</div>
-      ${workspace.sources.map(item => navButton('folder:'+item.id,item.name,'folder',item.ids.length)).join('')}
+      ${getSourceViews(workspace.sources,collapsed).map(item => navButton('folder:'+item.id,item.name,'folder',item.ids.length,item)).join('')}
       <div class="section-label collection-label">POST COLLECTIONS</div>
       ${workspace.collections.map(item => navButton('collection:'+item.id,item.name,'collection',item.ids.length)).join('')}
       ${navButton('settings','Workspace settings','settings')}`;
@@ -183,11 +188,16 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     return true;
   }
 
-  function galleryMarkup(filter) {
+  function galleryPhotos(filter) {
     const ids = filter ? new Set(filter.ids) : null;
     const candidates = ids ? workspace.photos.filter(photo => ids.has(photo.id)) : workspace.photos;
     const term = search.trim().toLowerCase();
     const photos = candidates.filter(photo => [photo.name,...photo.tags].some(value => value.toLowerCase().includes(term)));
+    return {photos,candidates};
+  }
+
+  function galleryMarkup(filter) {
+    const {photos,candidates}=galleryPhotos(filter);
     const hiddenCount = Array.isArray(workspace.unavailableSources) ? workspace.unavailableSources.length : workspace.unavailableSources;
     return `<form class="team-toolbar" id="team-search-form"><label class="search">${icon('search')}<input type="search" name="query" value="${esc(search)}" placeholder="Search photos or tags" aria-label="Search team photos or tags"></label><button type="submit" class="filter-button">Search</button>
       <button type="button" data-team-action="refresh" class="filter-button">${icon('refresh')} Refresh folders</button>
@@ -257,7 +267,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
 
   function memberForm(email) {
     const current = workspace.members.find(item => item.email === email);
-    modal(current ? 'Edit member access' : 'Invite member',`This gives access to ${workspace.name} in TADA. Share the folders with this email in Google Drive separately.`,
+    modal(current ? 'Edit member access' : 'Invite member',`Members will find ${workspace.name} in their workspace switcher when they sign in with this Google account. Share the folders with them separately in Drive.`,
       `<label class="field-label" for="team-member-email">Google account email</label>
        <input class="modal-input" id="team-member-email" type="email" required value="${esc(email || '')}" ${current ? 'readonly' : 'autofocus'}>
        <label class="field-label" for="team-member-role">Role</label>
@@ -281,28 +291,110 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
       }));
   }
 
-  function openPhoto(id) {
+  function openPhoto(id,keepSequence=false) {
     const photo = workspace.photos.find(item => item.id === id);
     if(!photo) return;
-    const edit = canEdit();
+    if(!keepSequence){
+      const filter=getSourceViews(workspace.sources).find(folder => 'folder:'+folder.id===view)
+        || workspace.collections.find(collection => 'collection:'+collection.id===view);
+      previewIds=galleryPhotos(filter).photos.map(item => item.id);
+    }
+    if(!previewIds.includes(id))previewIds=[id];
+    const index=previewIds.indexOf(id);
+    const edit=canEdit();
+    const focus=get('#modal').open?document.activeElement?.id:null;
+    const known=normalizeTags(workspace.photos.flatMap(item => item.tags));
+    const suggestions=known.filter(tag => !photo.tags.some(value => value.toLowerCase()===tag.toLowerCase())).slice(0,8);
+    const size=Number(photo.size);
+    const info=[photo.modifiedTime?.slice(0,10),size>0?`${(size/1048576).toFixed(1)} MB`:null].filter(Boolean).join(' · ');
+    const disabled=previewIds.length<2?'disabled':'';
     modal(photo.name,edit ? destination() : `${workspace.name} · Viewer`,
-      `<div class="team-preview"><img src="${media(id,'thumbnail')}" alt="${esc(photo.name)}">
-      ${isDemo() ? '' : `<a class="text-button" href="https://drive.google.com/file/d/${encodeURIComponent(id)}/view" target="_blank" rel="noopener noreferrer">Open in Google Drive</a> · <a class="text-button" href="${media(id,'download')}" download>Download original</a>`}</div>
-      <div class="photo-tags">${photo.tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</div>
-      ${edit ? `<label class="field-label" for="team-tag">Tag</label><div class="team-tag-controls">
-        <input class="modal-input" id="team-tag" maxlength="80" placeholder="Enter a tag">
-        <select class="modal-input" id="team-tag-operation" aria-label="Tag change"><option value="add">Add tag</option><option value="remove">Remove tag</option></select></div>
-        ${workspace.collections.length ? `<label class="field-label" for="team-collection">Collection</label>
-        <select class="modal-input" id="team-collection"><option value="">No collection change</option>
-        ${workspace.collections.map(item => `<option value="${esc(item.id)}">${item.ids.includes(id) ? 'Remove from ' : 'Add to '}${esc(item.name)}</option>`).join('')}</select>` : ''}` : ''}`,
-      edit ? 'Save changes' : 'Done',edit ? modalTask(async () => {
-        const tag = get('#team-tag').value.trim();
-        const collectionId = get('#team-collection')?.value;
-        const collection = workspace.collections.find(item => item.id === collectionId);
-        await change({action:'edit-photo',photoId:id,tag:tag || undefined,tagOperation:get('#team-tag-operation').value,
-          collectionId:collection?.id,collectionOperation:collection?.ids.includes(id) ? 'remove' : 'add'});
-        closeModal();
-      }) : closeModal,{wide:true});
+      `<div class="preview-navigation" aria-label="Photo navigation">
+        <button type="button" id="team-previous" ${disabled}>← Previous</button>
+        <span aria-live="polite">${index+1} of ${previewIds.length}</span>
+        <button type="button" id="team-next" ${disabled}>Next →</button></div>
+      <img class="detail-image" src="${media(id,'thumbnail')}" alt="${esc(photo.name)}">
+      <div class="detail-meta"><span>${esc(info)}</span><span>${photo.width&&photo.height?`${esc(photo.width)} × ${esc(photo.height)}`:'Original photo'}</span></div>
+      ${isDemo()?'':`<div class="detail-drive-links">
+        <a href="https://drive.google.com/file/d/${encodeURIComponent(id)}/view" target="_blank" rel="noopener noreferrer">${icon('arrow-up-right',16)} Open original in Google Drive</a>
+        ${photo.sourceFolderId?`<a href="https://drive.google.com/drive/folders/${encodeURIComponent(photo.sourceFolderId)}" target="_blank" rel="noopener noreferrer">${icon('folder',16)} Open source folder</a>`:''}
+        <a href="${media(id,'download')}" download>Download original</a></div>`}
+      <section class="quick-tags" aria-label="Photo tags">
+        ${edit?'<label class="field-label" for="team-quick-tag">Tags</label>':'<div class="field-label">Tags</div>'}
+        <div class="quick-current-tags">${photo.tags.map(tag => edit
+          ?`<button type="button" class="tag" data-team-remove-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">${esc(tag)} <span aria-hidden="true">×</span></button>`
+          :`<span class="tag">${esc(tag)}</span>`).join('')||'<span class="quick-tags-empty">No tags yet</span>'}</div>
+        ${edit?`<div class="quick-tag-entry"><input class="modal-input" id="team-quick-tag" maxlength="250" placeholder="Add tags, separated by commas" autocomplete="off"><button type="button" class="primary" id="team-add-tag">Add</button></div>
+        <div class="quick-tag-suggestions">${suggestions.map(tag => `<button type="button" data-team-add-tag="${esc(tag)}">+ ${esc(tag)}</button>`).join('')}</div>
+        <span class="quick-tag-help">Enter to add · Click × to remove · Changes save automatically</span>`:''}
+      </section>
+      <div class="detail-collections">Collections: ${workspace.collections.filter(item => item.ids.includes(id)).map(item => esc(item.name)).join(', ')||'Not in a collection yet'}</div>
+      ${edit&&workspace.collections.length?`<details class="team-collection-menu"><summary class="filter-button">Manage collections</summary><div class="choice-list">
+        ${workspace.collections.map(item => `<label class="collection-choice"><input type="checkbox" data-team-photo-collection="${esc(item.id)}" ${item.ids.includes(id)?'checked':''}><span>${esc(item.name)}</span></label>`).join('')}
+      </div></details>`:''}`,
+      'Done',closeModal,{wide:true});
+    const dialog=get('#modal');
+    dialog.dataset.teamPreviewId=id;
+    let saving=false;
+    const move=step => {
+      if(!saving&&previewIds.length>1)openPhoto(previewIds[(index+step+previewIds.length)%previewIds.length],true);
+    };
+    get('#team-previous').onclick=()=>move(-1);
+    get('#team-next').onclick=()=>move(1);
+    dialog.onkeydown=event => {
+      if(event.altKey||event.ctrlKey||event.metaKey||event.target.closest('input,textarea,select,[contenteditable="true"]'))return;
+      if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
+      event.preventDefault();
+      move(event.key==='ArrowRight'?1:-1);
+    };
+
+    async function persist(changes,focusTag=false) {
+      if(saving||!changes.length)return;
+      const error=get('#modal-error');
+      if(changes.some(action=>action.tag?.length>80)){
+        error.textContent='Each tag must be 80 characters or fewer.';
+        return;
+      }
+      saving=true;
+      const workspaceId=workspace.id;
+      const collectionsOpen=get('.team-collection-menu')?.open;
+      const controls=[...dialog.querySelectorAll('button,input')].filter(item => !item.disabled);
+      controls.forEach(item => {item.disabled=true;});
+      try{
+        for(const action of changes)await apiWorkspace(workspaceId,{action:'edit-photo',photoId:id,...action});
+        if(workspace?.id===workspaceId)await refreshWorkspace(workspaceId);
+        if(dialog.open&&dialog.dataset.teamPreviewId===id){
+          openPhoto(id,true);
+          if(collectionsOpen&&get('.team-collection-menu'))get('.team-collection-menu').open=true;
+          if(focusTag)get('#team-quick-tag')?.focus();
+        }
+      }catch(problem){
+        if(error.isConnected)error.textContent=problem.message;
+      }finally{
+        saving=false;
+        controls.forEach(item => {item.disabled=false;});
+      }
+    }
+    if(edit){
+      const input=get('#team-quick-tag');
+      const add=()=>void persist(normalizeTags(input.value.split(',')).map(tag => ({tag,tagOperation:'add'})),true);
+      get('#team-add-tag').onclick=add;
+      input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();add();}};
+      dialog.querySelectorAll('[data-team-add-tag]').forEach(button => {
+        button.onclick=()=>void persist([{tag:button.dataset.teamAddTag,tagOperation:'add'}]);
+      });
+      dialog.querySelectorAll('[data-team-remove-tag]').forEach(button => {
+        button.onclick=()=>void persist([{tag:button.dataset.teamRemoveTag,tagOperation:'remove'}]);
+      });
+      dialog.querySelectorAll('[data-team-photo-collection]').forEach(input => {
+        input.onchange=()=>{
+          const added=input.checked;
+          input.checked=!added;
+          void persist([{collectionId:input.dataset.teamPhotoCollection,collectionOperation:added?'add':'remove'}]);
+        };
+      });
+    }
+    if(['team-previous','team-next'].includes(focus))get('#'+focus)?.focus();
   }
 
   function removeSource(id) {
@@ -319,6 +411,11 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
   sidebar.onclick = event => {
     const target = event.target.closest('[data-team-view]');
     if(!target) return;
+    const folderId=target.dataset.teamToggle;
+    if(folderId&&view===target.dataset.teamView){
+      if(collapsed.has(folderId))collapsed.delete(folderId);
+      else collapsed.add(folderId);
+    }
     view = target.dataset.teamView;
     visibleLimit = 48;
     render();
