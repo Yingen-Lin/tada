@@ -29,16 +29,26 @@ export function createWorkspaceDemo() {
     const id = path.split('/')[3];
     const input = options?.body && JSON.parse(options.body);
     if(!id) {
-      if(!input) return [...teams.values()].map(({id,name,role}) => ({id,name,role}));
+      if(!input) return [...teams.values()].map(({id,name,role,archived}) => ({id,name,role,...(archived ? {archived:true} : {})}));
       const next = make(input.name.trim());
       if(!next.name) throw new Error('Enter a workspace name.');
       teams.set(next.id,next);
       return {id:next.id};
     }
     const team = teams.get(id);
-    if(!team) throw new Error('Workspace unavailable.');
+    if(!team || (team.archived && input?.action !== 'restore-workspace')) throw new Error('Workspace unavailable.');
     if(!input) return structuredClone(team);
     switch(input.action) {
+      case 'rename-workspace':
+        if(!input.name.trim()) throw new Error('Enter a workspace name.');
+        team.name = input.name.trim();
+        break;
+      case 'archive-workspace':
+        team.archived = true;
+        break;
+      case 'restore-workspace':
+        delete team.archived;
+        break;
       case 'add-source': {
         const folderId = input.folderId.trim().split('/').at(-1);
         const folder = folders.find(item => item.id === folderId);

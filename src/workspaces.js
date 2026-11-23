@@ -20,9 +20,9 @@ function roleFor(workspace,user) {
   return workspace?.members.find(member => member.email === user.email)?.role;
 }
 
-function requireRole(workspace,user,allowed) {
+function requireRole(workspace,user,allowed,allowArchived = false) {
   const role = roleFor(workspace,user);
-  if(!role) throw absent();
+  if(!role || (workspace.archived && (!allowArchived || role !== 'admin'))) throw absent();
   if(allowed && !allowed.includes(role)) throw fail(403,'Your workspace role cannot make this change.');
   return role;
 }
@@ -186,7 +186,8 @@ export function workspaceService(store,user,get) {
       const records = await Promise.all([...ids].map(read));
       return records.flatMap(workspace => {
         const role = roleFor(workspace,user);
-        return role ? [{id:workspace.id,name:workspace.name,role}] : [];
+        if(!role || (workspace.archived && role !== 'admin')) return [];
+        return [{id:workspace.id,name:workspace.name,role,...(workspace.archived ? {archived:true} : {})}];
       });
     },
 
@@ -221,12 +222,13 @@ export function workspaceService(store,user,get) {
     async change(id,input) {
       const workspace = await read(id);
       const action = input?.action;
-      const manage = ['set-member','add-source','remove-source'].includes(action);
+      const manage = ['set-member','add-source','remove-source','rename-workspace','archive-workspace','restore-workspace'].includes(action);
       const allowed = manage ? admin : writeRoles;
-      requireRole(workspace,user,allowed);
+      const restoring = action === 'restore-workspace';
+      requireRole(workspace,user,allowed,restoring);
       const operation = await prepareOperation(workspace,user,input,get,store);
       const updated = await update(store,workspaceKey(id),current => {
-        requireRole(current,user,allowed);
+        requireRole(current,user,allowed,restoring);
         operation(current);
         return current;
       });
@@ -254,6 +256,14 @@ function boundPhoto(workspace,proof) {
 
 async function prepareOperation(workspace,user,input,get,store) {
   switch(input?.action) {
+    case 'rename-workspace': {
+      const name = text(input.name,80,'workspace name');
+      return current => {current.name = name;};
+    }
+    case 'archive-workspace':
+      return current => {current.archived = true;};
+    case 'restore-workspace':
+      return current => {delete current.archived;};
     case 'set-member': {
       const email = text(input.email,254,'Google account email').toLowerCase();
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email === workspace.owner.email) {

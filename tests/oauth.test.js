@@ -219,5 +219,23 @@ test('team workspaces share edits without granting Drive access or changing pers
   assert.equal((await apply(owner,{action:'set-member',email:'viewer@example.com',role:'remove'})).status,200);
   assert.equal((await view(viewer)).status,404);
   assert.deepEqual((await requestJson('/api/workspaces',viewer)).data,[]);
+  const rename={action:'rename-workspace',name:'Studio'};
+  const archive={action:'archive-workspace'};
+  const restore={action:'restore-workspace'};
+  assert.equal((await apply(editor,rename)).status,403);
+  assert.equal((await apply(editor,archive)).status,403);
+  assert.equal((await apply(owner,rename)).status,200);
+  assert.equal((await view(editor)).data.name,'Studio');
+  const beforeArchive=(await view(owner)).data;
+  assert.equal((await apply(owner,archive)).status,200);
+  assert.equal((await view(owner)).status,404);
+  assert.equal((await view(editor)).status,404);
+  assert.equal((await request(path+'/files/'+photoB+'/thumbnail',{cookie:editor})).status,404);
+  assert.deepEqual((await requestJson('/api/workspaces',editor)).data,[]);
+  assert.deepEqual((await requestJson('/api/workspaces',owner)).data,[{id:created.data.id,name:'Studio',role:'admin',archived:true}]);
+  assert.equal((await apply(editor,restore)).status,404);
+  assert.equal((await apply(owner,restore)).status,200);
+  assert.deepEqual((await view(owner)).data,beforeArchive);
+  assert.equal((await view(editor)).status,200);
  }finally{globalThis.fetch=original}
 });

@@ -80,8 +80,9 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
           <span><strong>${esc(label)}</strong><small>${esc(subtitle)}</small></span>${selected ? icon('check') : ''}
         </button>`;
       menu.innerHTML = option('personal','Personal library','Only you',!workspace) +
-        teams.map(team => option(team.id,team.name,roleLabel(team.role),workspace?.id === team.id)).join('') +
-        '<button type="button" class="workspace-menu-create" data-destination="create">Create team workspace</button>';
+        teams.filter(team => !team.archived).map(team => option(team.id,team.name,roleLabel(team.role),workspace?.id === team.id)).join('') +
+        '<button type="button" class="workspace-menu-create" data-destination="create">Create team workspace</button>' +
+        teams.filter(team => team.archived).map(team => option('restore:'+team.id,team.name,'Archived · Restore workspace',false)).join('');
       menu.hidden = false;
       chooser.setAttribute('aria-expanded','true');
       menu.querySelector('button').focus();
@@ -103,6 +104,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
       renderPersonal();
       return;
     }
+    if(destination.startsWith('restore:')) return restoreWorkspace(destination.slice('restore:'.length));
     try {await openWorkspace(destination);}
     catch(error) {toast(error.message);}
   };
@@ -129,7 +131,7 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
 
   function create() {
     modal('Create team workspace','Invite people and connect shared Google Drive folders after creating the workspace.',
-      '<label class="field-label" for="team-name">Workspace name</label><input class="modal-input" id="team-name" maxlength="80" required autofocus>',
+      '<label class="field-label" for="team-name">Workspace name</label><input class="modal-input" id="team-name" autocomplete="off" maxlength="80" required autofocus>',
       'Create workspace',modalTask(async () => {
         const result = await apiWorkspace('',{name:get('#team-name').value});
         await openWorkspace(result.id);
@@ -225,10 +227,52 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
       <button type="button" class="primary" data-team-action="invite">Invite member</button>
       </div></section>`;
     return `<section class="settings-content">
+      ${isAdmin() ? `<section class="storage-card team-settings-card"><div>
+        <h2>General</h2>
+        <div class="team-row"><div><small>Workspace name</small><strong>${esc(workspace.name)}</strong></div>
+          <button type="button" class="filter-button" data-team-action="rename">Rename</button></div>
+        <button type="button" class="filter-button" data-team-action="archive">Archive workspace</button>
+      </div></section>` : ''}
       <section class="storage-card team-settings-card"><div><h2>Folder connections</h2><p class="settings-note">Google Drive · Read only</p>
       ${sources}${unavailable}
       ${isAdmin() ? '<button type="button" class="primary" data-team-action="add-folder">Add folder</button>' : ''}
       </div></section>${members}</section>`;
+  }
+
+  function renameWorkspace() {
+    modal('Rename workspace','',
+      `<label class="field-label" for="team-rename">Workspace name</label><input class="modal-input" id="team-rename" autocomplete="off" maxlength="80" required autofocus value="${esc(workspace.name)}">`,
+      'Save name',modalTask(async () => {
+        await change({action:'rename-workspace',name:get('#team-rename').value});
+        closeModal();
+      }));
+  }
+
+  function archiveWorkspace() {
+    const {id,name} = workspace;
+    modal('Archive workspace',`Archiving ${name} hides it from members. Your Drive connections, tags and collections are saved so you can restore it from the workspace switcher.`,
+      '', 'Archive workspace',modalTask(async () => {
+        await apiWorkspace(id,{action:'archive-workspace'});
+        closeModal();
+        if(workspace?.id === id) {
+          opening++;
+          workspace = null;
+          renderPersonal();
+        }
+        toast('Workspace archived.');
+      }));
+  }
+
+  function restoreWorkspace(id) {
+    modal('Restore workspace','Members will regain access to the workspace when you restore it.',
+      '', 'Restore workspace',modalTask(async () => {
+        await apiWorkspace(id,{action:'restore-workspace'});
+        await openWorkspace(id);
+        view = 'settings';
+        closeModal();
+        render();
+        toast('Workspace restored.');
+      }));
   }
 
   async function loadDriveChoices(pageToken = '') {
@@ -430,6 +474,8 @@ export function createWorkspaceUI({api,isDemo,esc,modal,closeModal,toast,renderP
     },
     collection:createCollection,
     'add-folder':addFolder,
+    rename:renameWorkspace,
+    archive:archiveWorkspace,
     invite:() => memberForm(),
     more:() => {visibleLimit += 48; render();}
   };

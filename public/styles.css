@@ -78,12 +78,12 @@ html,body{height:100%;overflow:hidden}body{height:100dvh;min-height:0;padding:16
 #start-workspace-demo{margin-bottom:16px}
 .team-demo-note{margin:0 0 16px;padding:9px 12px;background:var(--sidebar);border:1px solid var(--line);border-radius:6px;color:var(--ink)}
 #workspace-menu-root{position:relative;min-width:0}
-#workspace-menu{top:calc(100% - 18px);left:0;right:0;min-width:0}
+#workspace-menu{top:calc(100% - 18px);left:0;right:0;min-width:0;max-height:min(55vh,420px);overflow:auto}
 #workspace-menu button{gap:8px;overflow-wrap:anywhere}
 #workspace-menu small{display:block;margin-top:2px;color:var(--muted);font-size:11px}
 #workspace-menu button[aria-current=true]{background:#f0eaf8;color:#655079}
 #workspace-menu .workspace-menu-create{border-top:1px solid var(--line);margin-top:4px;font-weight:650}
-#team-member-email:focus{outline:none;box-shadow:none;caret-color:var(--ink)}
+#team-name:focus,#team-rename:focus,#team-member-email:focus{outline:none;box-shadow:none;caret-color:var(--ink)}
 .team-collection-menu{margin-top:10px}
 .team-collection-menu>summary{width:fit-content;cursor:pointer}
 .team-collection-menu>.choice-list{margin-top:8px}
