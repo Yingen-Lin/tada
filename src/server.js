@@ -74,9 +74,9 @@ async function resizePreview(response){
   }
 }
 
-function noThumbnail(res){
+function noThumbnail(res,reason){
   res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'private, no-store'});
-  res.end('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#eeedf2"/><text x="200" y="150" text-anchor="middle" fill="#85808c" font-family="sans-serif" font-size="14">Preview unavailable</text></svg>');
+  res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#eeedf2"/><text x="200" y="150" text-anchor="middle" fill="#85808c" font-family="sans-serif" font-size="14">Preview unavailable</text><text x="200" y="174" text-anchor="middle" fill="#85808c" font-family="sans-serif" font-size="12">${reason}</text></svg>`);
 }
 
 async function sendPhoto(s,res,id,kind,file){
@@ -105,7 +105,13 @@ async function sendPhoto(s,res,id,kind,file){
         stream=await resizePreview(stream);
       }
     }
-    if(!stream)return noThumbnail(res);
+    if(!stream){
+      const reason=file.capabilities?.canDownload===false?'Drive restricts file access'
+        : !inlinePhotoTypes.has(file.mimeType)?'Use Google Drive for this format'
+        : size>maxResizeSource?'File exceeds the preview size limit'
+        : 'Drive did not return a usable preview';
+      return noThumbnail(res,reason);
+    }
   }else{
     if(file.capabilities?.canDownload===false)return json(res,403,{error:'The owner has disabled downloads for this photo.'});
     stream=await load(original);
